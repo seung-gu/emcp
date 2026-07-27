@@ -1,0 +1,9 @@
+[project]
+name = "emcp"
+version = "0.1.0"
+description = "Embedded LED control MCP server (Claude/ChatGPT -> flag -> ESP32 polling)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.28.1",
+]

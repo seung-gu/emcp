@@ -1,0 +1,24 @@
+app = "emcp-led"
+primary_region = "fra"
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # 휘발성 in-memory flag 를 유지하려면 머신이 꺼지면 안 된다.
+  # auto_stop 을 끄고 최소 1대를 항상 켜 둔다.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
