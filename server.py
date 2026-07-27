@@ -7,6 +7,7 @@
      호출해서 flag 를 바꾼다.
    - `search_location` 으로 지명의 좌표 후보를 찾고, 고른 좌표를
      `set_weather_location` 에 넘겨 날씨를 조회할 위치를 바꾼다.
+     `get_weather_location` 으로 현재 위치를 확인한다.
 
 2. 일반 HTTP 인터페이스 (ESP32 polling 용)
    - ESP32 는 MCP 프로토콜을 말하기 어려우므로, 단순 `GET /led` 로 현재 flag 를
@@ -83,6 +84,12 @@ def set_weather_location(name: str, latitude: float, longitude: float) -> str:
         return f"좌표 범위가 잘못됐다: ({latitude}, {longitude})"
     _location.update(name=name, lat=latitude, lon=longitude)
     return f"날씨 위치를 {name} ({latitude}, {longitude}) 로 설정했다"
+
+
+@mcp.tool()
+def get_weather_location() -> str:
+    """현재 설정된 날씨 위치를 반환한다 ('이름 (위도, 경도)')."""
+    return f"{_location['name']} ({_location['lat']}, {_location['lon']})"
 
 
 @mcp.tool()

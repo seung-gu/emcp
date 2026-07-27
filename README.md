@@ -29,6 +29,7 @@ Claude / ChatGPT 가 MCP 도구로 LED flag 를 켜고/끄거나 날씨 위치�
   | `get_led_status`| 현재 flag 반환 (`"on"` / `"off"`) |
   | `search_location(query, count=5)` | 지명으로 좌표 후보 검색 (open-meteo geocoding) |
   | `set_weather_location(name, latitude, longitude)` | 날씨를 조회할 위치 설정 |
+  | `get_weather_location` | 현재 위치 반환 (`"뮌헨 (48.14, 11.58)"`) |
 
 날씨 위치를 바꾸는 정상 흐름은 **`search_location` → 후보 선택 →
 `set_weather_location`** 이다:
