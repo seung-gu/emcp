@@ -26,11 +26,13 @@ flag 와 위치는 프로세스 메모리에만 존재하는 휘발성 상태다
 from __future__ import annotations
 
 import os
+from collections import deque
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import PlainTextResponse
+from starlette.responses import HTMLResponse, PlainTextResponse
 
 # --- 공유 상태 (휘발성, in-memory) ---------------------------------------------
 # GIL 덕분에 단일 bool 의 읽기/쓰기는 원자적이라 별도 락이 필요 없다.
@@ -38,6 +40,12 @@ _led_on = False
 
 # 날씨를 조회할 위치. 기본값은 뮌헨이고 MCP 도구로 바꾼다.
 _location = {"name": "뮌헨", "lat": 48.14, "lon": 11.58}
+
+# 기기 상태 보고. 메모리에만 있어서 재배포하면 사라진다 (DB 로 옮기기 전 임시).
+# 30일 지나면 버리고, maxlen 은 기기가 폭주할 때를 대비한 상한이다.
+_KEEP_DAYS = 30
+_MAX_REPORTS = 5000
+_reports = deque(maxlen=_MAX_REPORTS)
 
 
 def _set_led(on: bool) -> None:
@@ -145,14 +153,26 @@ WMO_KO = {
     95:"뇌우", 96:"뇌우(우박)", 99:"강한 뇌우(우박)",
 }
 
-@mcp.custom_route("/weather", methods=["GET"])
-async def weather(request: Request) -> PlainTextResponse:
-    """현재 설정된 위치의 날씨. 7줄: 도시/기온/상태/바람/습도/최고°최저°/강수%."""
+WEEKDAY = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _stamp(utc_offset_seconds: int) -> str:
+    """조회 위치의 현지 시각을 '9/11(Fri) 14:30' 으로. 기기가 그대로 화면에 찍는다.
+
+    요일이 영문인 건 기기 하단줄 폰트에 한글 글리프가 없어서다. 시각을 응답의
+    current.time 이 아니라 서버 시계로 만드는 건 그 값이 15분 단위로 끊겨서다.
+    """
+    t = datetime.now(timezone.utc) + timedelta(seconds=utc_offset_seconds)
+    return f"{t.month}/{t.day}({WEEKDAY[t.weekday()]}) {t.hour:02d}:{t.minute:02d}"
+
+
+async def _weather_body() -> tuple[str, int]:
+    """날씨 본문과 상태코드. 8줄: 도시/기온/상태/바람/습도/최고°최저°/강수%/날짜시각."""
     loc = dict(_location)  # 요청 처리 중 위치가 바뀌어도 한 응답 안에서는 일관되게.
     url = ("https://api.open-meteo.com/v1/forecast"
            f"?latitude={loc['lat']}&longitude={loc['lon']}"
            "&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m"
-           "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"  # ← 추가
+           "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
            "&forecast_days=1&timezone=auto")  # 위치가 바뀌므로 현지 타임존을 자동으로 잡는다
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -162,14 +182,109 @@ async def weather(request: Request) -> PlainTextResponse:
         desc  = WMO_KO.get(cur["weather_code"], "알수없음")
         wind  = round(cur["wind_speed_10m"])
         humid = round(cur["relative_humidity_2m"])
-        tmax  = round(daily["temperature_2m_max"][0])                    # ← 최고
-        tmin  = round(daily["temperature_2m_min"][0])                    # ← 최저
-        pop   = daily["precipitation_probability_max"][0] or 0           # ← 강수확률(None 방어)
-        return PlainTextResponse(
-            f"{loc['name']}\n{temp}°C\n{desc}\n{wind}km/h\n{humid}%\n{tmax}°/{tmin}°\n{pop}%")  # ← 2줄 추가
+        tmax  = round(daily["temperature_2m_max"][0])
+        tmin  = round(daily["temperature_2m_min"][0])
+        pop   = daily["precipitation_probability_max"][0] or 0           # 강수확률(None 방어)
+        stamp = _stamp(data.get("utc_offset_seconds", 0))
+        return (f"{loc['name']}\n{temp}°C\n{desc}\n{wind}km/h\n{humid}%"
+                f"\n{tmax}°/{tmin}°\n{pop}%\n{stamp}", 200)
     except Exception:
-        return PlainTextResponse(
-            f"{loc['name']}\n--°C\n조회실패\n--km/h\n--%\n--°/--°\n--%", status_code=500)
+        # 8번째 줄을 비워 둔다: 조회에 실패했으면 시각도 믿을 게 못 된다.
+        return (f"{loc['name']}\n--°C\n조회실패\n--km/h\n--%\n--°/--°\n--%\n", 500)
+
+
+@mcp.custom_route("/weather", methods=["GET"])
+async def weather(request: Request) -> PlainTextResponse:
+    """브라우저나 curl 로 확인할 때 쓰는 읽기 전용 경로. 기기는 POST 를 쓴다."""
+    body, status = await _weather_body()
+    return PlainTextResponse(body, status_code=status)
+
+
+@mcp.custom_route("/weather", methods=["POST"])
+async def weather_report(request: Request) -> PlainTextResponse:
+    """기기가 wake 마다 부르는 경로. 본문 'battery_mv,wifi_ms,rssi' 를 받고 날씨를 응답한다.
+
+    시각은 기기가 모르므로 서버 시계로 찍는다. 토큰 검증은 DB 를 붙일 때 함께 들어간다.
+    """
+    raw = (await request.body()).decode("utf-8", "replace").strip()
+    try:
+        battery_mv, wifi_ms, rssi = (int(v) for v in raw.split(","))
+    except ValueError:
+        return PlainTextResponse(f"bad body: {raw!r}", status_code=400)
+
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=_KEEP_DAYS)).isoformat(timespec="seconds")
+    while _reports and _reports[0]["at"] < cutoff:   # ISO 문자열은 사전순 = 시간순
+        _reports.popleft()
+    _reports.append({
+        "at": now.isoformat(timespec="seconds"),
+        "battery_mv": battery_mv, "wifi_ms": wifi_ms, "rssi": rssi,
+    })
+    print(f"report: {raw} ({len(_reports)} kept)", flush=True)
+
+    body, status = await _weather_body()
+    return PlainTextResponse(body, status_code=status)
+
+def _sparkline(values: list[int], width: int = 720, height: int = 160) -> str:
+    """값 목록을 SVG 꺾은선으로. 축 눈금은 최소·최대 두 개만 둔다."""
+    if len(values) < 2:
+        return '<p class="empty">그래프를 그리려면 보고가 2건 이상 필요합니다.</p>'
+    lo, hi = min(values), max(values)
+    span = hi - lo or 1
+    step = width / (len(values) - 1)
+    pts = " ".join(
+        f"{i * step:.1f},{height - (v - lo) / span * (height - 20) - 10:.1f}"
+        for i, v in enumerate(values)
+    )
+    return (
+        f'<svg viewBox="0 0 {width} {height}" preserveAspectRatio="none" role="img">'
+        f'<polyline points="{pts}" fill="none" stroke="currentColor" stroke-width="2"/>'
+        f"</svg>"
+        f'<div class="axis"><span>{hi} mV</span><span>{lo} mV</span></div>'
+    )
+
+
+@mcp.custom_route("/dashboard", methods=["GET"])
+async def dashboard(request: Request) -> HTMLResponse:
+    """기기가 보내온 보고를 훑어보는 페이지. 메모리에 있는 것만 보여준다."""
+    rows = list(_reports)
+    recent = rows[-50:][::-1]
+    table = "".join(
+        f"<tr><td>{r['at'].replace('T', ' ').replace('+00:00', '')}</td>"
+        f"<td>{r['battery_mv']}</td><td>{r['wifi_ms']}</td><td>{r['rssi']}</td></tr>"
+        for r in recent
+    ) or '<tr><td colspan="4" class="empty">아직 보고가 없습니다.</td></tr>'
+
+    return HTMLResponse(f"""<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>기기 상태</title>
+<style>
+  :root {{ color-scheme: light dark; }}
+  body {{ font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; margin: 0 auto; padding: 24px;
+          max-width: 820px; }}
+  h1 {{ font-size: 1.25rem; margin: 0 0 4px; }}
+  .sub {{ opacity: .65; margin: 0 0 24px; font-size: .875rem; }}
+  h2 {{ font-size: .95rem; margin: 28px 0 8px; }}
+  svg {{ width: 100%; height: 160px; display: block; }}
+  .axis {{ display: flex; justify-content: space-between; font-size: .75rem; opacity: .6; }}
+  table {{ border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }}
+  th, td {{ text-align: right; padding: 5px 10px; border-bottom: 1px solid rgba(128,128,128,.25); }}
+  th:first-child, td:first-child {{ text-align: left; }}
+  th {{ font-weight: 600; opacity: .65; font-size: .8rem; }}
+  .empty {{ opacity: .5; text-align: center; padding: 24px; }}
+</style></head><body>
+<h1>기기 상태</h1>
+<p class="sub">보고 {len(rows)}건 · {_KEEP_DAYS}일 보관 (최대 {_MAX_REPORTS}건) · 재배포하면 초기화됩니다</p>
+<h2>배터리</h2>
+{_sparkline([r["battery_mv"] for r in rows])}
+<h2>최근 보고</h2>
+<table>
+  <tr><th>시각 (UTC)</th><th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th></tr>
+  {table}
+</table>
+</body></html>""")
+
 
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
