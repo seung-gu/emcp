@@ -34,6 +34,8 @@ from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, PlainTextResponse
 
+import dashboard
+
 # --- 공유 상태 (휘발성, in-memory) ---------------------------------------------
 # GIL 덕분에 단일 bool 의 읽기/쓰기는 원자적이라 별도 락이 필요 없다.
 _led_on = False
@@ -225,65 +227,10 @@ async def weather_report(request: Request) -> PlainTextResponse:
     body, status = await _weather_body()
     return PlainTextResponse(body, status_code=status)
 
-def _sparkline(values: list[int], width: int = 720, height: int = 160) -> str:
-    """값 목록을 SVG 꺾은선으로. 축 눈금은 최소·최대 두 개만 둔다."""
-    if len(values) < 2:
-        return '<p class="empty">그래프를 그리려면 보고가 2건 이상 필요합니다.</p>'
-    lo, hi = min(values), max(values)
-    span = hi - lo or 1
-    step = width / (len(values) - 1)
-    pts = " ".join(
-        f"{i * step:.1f},{height - (v - lo) / span * (height - 20) - 10:.1f}"
-        for i, v in enumerate(values)
-    )
-    return (
-        f'<svg viewBox="0 0 {width} {height}" preserveAspectRatio="none" role="img">'
-        f'<polyline points="{pts}" fill="none" stroke="currentColor" stroke-width="2"/>'
-        f"</svg>"
-        f'<div class="axis"><span>{hi} mV</span><span>{lo} mV</span></div>'
-    )
-
-
 @mcp.custom_route("/dashboard", methods=["GET"])
-async def dashboard(request: Request) -> HTMLResponse:
+async def dashboard_page(request: Request) -> HTMLResponse:
     """기기가 보내온 보고를 훑어보는 페이지. 메모리에 있는 것만 보여준다."""
-    rows = list(_reports)
-    recent = rows[-50:][::-1]
-    table = "".join(
-        f"<tr><td>{r['at'].replace('T', ' ').replace('+00:00', '')}</td>"
-        f"<td>{r['battery_mv']}</td><td>{r['wifi_ms']}</td><td>{r['rssi']}</td></tr>"
-        for r in recent
-    ) or '<tr><td colspan="4" class="empty">아직 보고가 없습니다.</td></tr>'
-
-    return HTMLResponse(f"""<!doctype html>
-<html lang="ko"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>기기 상태</title>
-<style>
-  :root {{ color-scheme: light dark; }}
-  body {{ font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; margin: 0 auto; padding: 24px;
-          max-width: 820px; }}
-  h1 {{ font-size: 1.25rem; margin: 0 0 4px; }}
-  .sub {{ opacity: .65; margin: 0 0 24px; font-size: .875rem; }}
-  h2 {{ font-size: .95rem; margin: 28px 0 8px; }}
-  svg {{ width: 100%; height: 160px; display: block; }}
-  .axis {{ display: flex; justify-content: space-between; font-size: .75rem; opacity: .6; }}
-  table {{ border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }}
-  th, td {{ text-align: right; padding: 5px 10px; border-bottom: 1px solid rgba(128,128,128,.25); }}
-  th:first-child, td:first-child {{ text-align: left; }}
-  th {{ font-weight: 600; opacity: .65; font-size: .8rem; }}
-  .empty {{ opacity: .5; text-align: center; padding: 24px; }}
-</style></head><body>
-<h1>기기 상태</h1>
-<p class="sub">보고 {len(rows)}건 · {_KEEP_DAYS}일 보관 (최대 {_MAX_REPORTS}건) · 재배포하면 초기화됩니다</p>
-<h2>배터리</h2>
-{_sparkline([r["battery_mv"] for r in rows])}
-<h2>최근 보고</h2>
-<table>
-  <tr><th>시각 (UTC)</th><th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th></tr>
-  {table}
-</table>
-</body></html>""")
+    return HTMLResponse(dashboard.render(list(_reports), _KEEP_DAYS, _MAX_REPORTS))
 
 
 if __name__ == "__main__":

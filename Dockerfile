@@ -8,7 +8,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 # 애플리케이션 코드
-COPY server.py ./
+COPY server.py dashboard.py dashboard.html ./
 
 ENV PORT=8080
 EXPOSE 8080

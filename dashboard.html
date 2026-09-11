@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>기기 상태</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 15px/1.5 ui-sans-serif, system-ui, sans-serif;
+         margin: 0 auto; padding: 24px; max-width: 820px; }
+  h1 { font-size: 1.25rem; margin: 0 0 4px; }
+  h2 { font-size: .95rem; margin: 28px 0 8px; }
+  .sub { opacity: .65; margin: 0 0 24px; font-size: .875rem; }
+  .note { font-size: .78rem; opacity: .6; margin: 6px 0 0; }
+  svg { width: 100%; height: 160px; display: block; }
+  /* 눈금은 SVG 위에 겹쳐 올린 HTML. 세로축은 위·아래 끝, 구간 경계는 해당 높이에. */
+  .chart { position: relative; }
+  .chart span { position: absolute; font-size: .72rem; line-height: 1; opacity: .55;
+                background: Canvas; padding: 0 3px; font-variant-numeric: tabular-nums; }
+  .ymax { top: 0; left: 0; }
+  .ymin { bottom: 0; left: 0; }
+  .band { right: 0; transform: translateY(-50%); }
+  .xaxis { display: flex; justify-content: space-between; font-size: .75rem;
+           opacity: .45; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 10px;
+           border-bottom: 1px solid rgba(128,128,128,.25); }
+  th:first-child, td:first-child, th:last-child, td:last-child { text-align: left; }
+  th { font-weight: 600; opacity: .65; font-size: .8rem; }
+  .empty { opacity: .5; text-align: center; padding: 24px; }
+</style>
+</head>
+<body>
+<h1>기기 상태</h1>
+<p class="sub">$sub</p>
+
+<h2>배터리</h2>
+$battery
+
+<h2>Wi-Fi 신호세기</h2>
+$rssi
+<p class="note">$rssi_note</p>
+
+<h2>최근 보고</h2>
+<table>
+  <tr><th>시각 (UTC)</th><th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th></tr>
+  $table
+</table>
+</body>
+</html>
