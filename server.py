@@ -285,7 +285,7 @@ async def weather_report(request: Request) -> JSONResponse:
     # 나머지는 있으면 싣고 없으면 만다. 기기 펌웨어와 이 서버는 따로 배포되므로 한쪽이
     # 아직 모르는 필드가 있어도 보고가 깨지면 안 된다.
     for k, clean in (("reset_reason", _int), ("wifi_attempts", _int),
-                     ("prev_awake_ms", _int), ("nvs_free", _int),
+                     ("prev_awake_ms", _int), ("nvs_free", _int), ("nvs_total", _int),
                      ("chip_c", _float), ("fw", _tag)):
         v = clean(report.get(k))
         if v is not None:

@@ -160,8 +160,9 @@ def render(rows: list[dict]) -> str:
     bits = [f"보고 {len(rows)}건"]
     if last.get("fw"):
         bits.append(f"펌웨어 {last['fw']}")
-    if last.get("nvs_free") is not None:
-        bits.append(f"NVS 여유 {last['nvs_free']}엔트리")
+    if (free := last.get("nvs_free")) is not None:
+        total = last.get("nvs_total")
+        bits.append(f"NVS {free}/{total} 엔트리 남음" if total else f"NVS {free}엔트리 남음")
 
     return _TEMPLATE.substitute(
         sub=" · ".join(bits),

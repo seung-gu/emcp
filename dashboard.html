@@ -30,6 +30,10 @@
   th:nth-child(5), td:nth-child(5), th:nth-child(8), td:nth-child(8) { text-align: left; }
   th { font-weight: 600; opacity: .65; font-size: .8rem; }
   .empty { opacity: .5; text-align: center; padding: 24px; }
+  /* 칸 이름만으로는 안 통하는 열들의 설명. 표 바로 아래 둔다. */
+  .legend { font-size: .78rem; opacity: .7; margin: 10px 0 0; }
+  .legend dt { font-weight: 600; margin-top: 8px; }
+  .legend dd { margin: 2px 0 0; }
   .logs { margin: 10px 0 16px; font-size: .85rem; }
   .logs ol { margin: 4px 0 0; padding-left: 22px; }
   .logs li { padding: 1px 0; }
@@ -60,18 +64,29 @@ $chip
 <h2>최근 보고</h2>
 <table>
   <tr><th>시각 (UTC)</th><th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th>
-      <th>온도 °C</th><th>wake ms</th><th>리셋</th><th>로그</th></tr>
+      <th>온도 °C</th><th>wake ms</th><th>리셋 사유</th><th>놓친 wake</th></tr>
   $table
 </table>
-<p class="note">wake ms 는 그 행이 깨어 있던 시간 전체다 — 부팅부터 화면을 다 그리고 잠들기
-  직전까지. 기기는 자기 wake 를 재서 그 자리에서 보낼 수 없으므로(값이 확정될 때쯤 보고는
-  이미 떠났다) 다음 보고가 가져온 값을 여기에 붙인다. 그래서 맨 윗줄은 다음 보고가 올
-  때까지 비어 있고, 중간에 놓친 wake 가 있던 구간도 비어 있다. 리셋 칸은 정상 웨이크
-  (딥슬립)면 비어 있다. 로그 칸은 그 보고가 데려온 놓친 wake 의 수다.</p>
+<dl class="legend">
+  <dt>wake ms</dt><dd>그 행이 깨어 있던 시간 전체 — 부팅부터 화면을 다 그리고 잠들기
+    직전까지. 배터리는 이 시간에 닳는다. 기기는 자기 wake 를 재서 그 자리에서 보낼 수
+    없으므로(값이 확정될 때쯤 보고는 이미 떠났다) 다음 보고가 가져온 값을 여기에 붙인다.
+    그래서 맨 윗줄은 다음 보고가 올 때까지 비어 있고, 중간에 놓친 wake 가 있던 자리도
+    비어 있다.</dd>
+  <dt>리셋 사유</dt><dd>이 부팅이 어떻게 시작됐나. <b>딥슬립 타이머로 깬 정상 wake 면
+    비어 있고</b>, 그 밖의 일이 있었을 때만 채워진다. <b>전원투입</b> = 전원이 새로 들어옴
+    (USB 연결, 배터리 재장착). <b>외부핀</b> = RESET 버튼. <b>SW재시작</b> = Wi-Fi 설정을
+    저장하고 스스로 재부팅. <b>브라운아웃</b> = 전압이 주저앉음, 배터리가 처지는 신호.
+    <b>패닉 / WDT</b> = 펌웨어가 죽음.</dd>
+  <dt>놓친 wake</dt><dd>그 보고가 데려온 실패한 wake 의 수. 서버에 닿지 못한 wake 는
+    스스로 보고할 수 없으므로 기기가 NVS 에 적어 뒀다가 다음에 성공한 보고에 실어 보낸다.
+    내용은 아래 목록에 있다.</dd>
+</dl>
 
 <h2>놓친 wake</h2>
-<p class="note">기기에 시계가 없어 항목마다 시각이 없다. 이것들을 데려온 보고의 도착
-  시각으로 묶었고, 한 블록 안에서는 오래된 것이 위다.</p>
+<p class="note">서버에 닿지 못한 wake 들. 기기에 시계가 없어 항목마다 시각이 없으므로
+  이것들을 데려온 보고의 도착 시각으로 묶었고, 한 블록 안에서는 오래된 것이 위다.
+  숫자는 그 wake 시점의 값이다 — 배터리 mV, Wi-Fi 에 쓴 ms, 잡혔다면 RSSI.</p>
 $logs
 </body>
 </html>
