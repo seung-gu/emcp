@@ -120,14 +120,14 @@ def _log_entry(e: dict) -> str:
 
 
 def _logs(recent: list[dict]) -> str:
-    """보고에 실려 온 로그. 기기에 시계가 없어 항목마다 시각이 없으므로, 이것들을 데려온
+    """보내지 못했던 보고들. 기기에 시계가 없어 항목마다 시각이 없으므로, 이것들을 데려온
     보고의 도착 시각 아래에 순서대로 묶는다."""
     blocks = [
-        f'<div class="logs"><b>{_hhmm(r["at"])}</b> 보고가 데려온 {len(r["log"])}건'
+        f'<div class="logs"><b>{_hhmm(r["at"])}</b> 보고가 뒤늦게 데려온 {len(r["log"])}건'
         f'<ol>{"".join(_log_entry(e) for e in r["log"])}</ol></div>'
         for r in recent if r.get("log")
     ]
-    return "".join(blocks) or '<p class="empty">놓친 wake 가 없습니다.</p>'
+    return "".join(blocks) or '<p class="empty">못 보낸 보고가 없습니다.</p>'
 
 
 def _attach_awake(rows: list[dict]) -> None:
