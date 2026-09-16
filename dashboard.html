@@ -7,7 +7,7 @@
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 ui-sans-serif, system-ui, sans-serif;
-         margin: 0 auto; padding: 24px; max-width: 820px; }
+         margin: 0 auto; padding: 24px; max-width: 940px; }
   h1 { font-size: 1.25rem; margin: 0 0 4px; }
   h2 { font-size: .95rem; margin: 28px 0 8px; }
   .sub { opacity: .65; margin: 0 0 24px; font-size: .875rem; }
@@ -26,7 +26,8 @@
   th, td { text-align: right; padding: 5px 10px;
            border-bottom: 1px solid rgba(128,128,128,.25); }
   th:first-child, td:first-child { text-align: left; }
-  th:nth-child(5), td:nth-child(5), th:nth-child(6), td:nth-child(6) { text-align: left; }
+  /* 글자가 들어가는 칸만 좌정렬. 나머지는 숫자라 우정렬이 자리를 맞춘다. */
+  th:nth-child(5), td:nth-child(5), th:nth-child(8), td:nth-child(8) { text-align: left; }
   th { font-weight: 600; opacity: .65; font-size: .8rem; }
   .empty { opacity: .5; text-align: center; padding: 24px; }
   .logs { margin: 10px 0 16px; font-size: .85rem; }
@@ -59,11 +60,12 @@ $chip
 <h2>최근 보고</h2>
 <table>
   <tr><th>시각 (UTC)</th><th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th>
-      <th>리셋</th><th>로그</th></tr>
+      <th>온도 °C</th><th>직전 깨어 ms</th><th>리셋</th><th>로그</th></tr>
   $table
 </table>
-<p class="note">리셋 칸은 정상 웨이크(딥슬립)면 비어 있다. 로그 칸은 그 보고가 데려온
-  놓친 wake 의 수다.</p>
+<p class="note">깨어 있던 시간은 <b>그 앞 wake</b> 의 값이다 — 화면까지 다 그린 뒤에야
+  확정되는데 보고는 그전에 떠난다. 리셋 칸은 정상 웨이크(딥슬립)면 비어 있고, 뭔가 다른
+  일이 있었을 때만 채워진다. 로그 칸은 그 보고가 데려온 놓친 wake 의 수다.</p>
 
 <h2>놓친 wake</h2>
 <p class="note">기기에 시계가 없어 항목마다 시각이 없다. 이것들을 데려온 보고의 도착

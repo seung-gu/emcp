@@ -136,10 +136,11 @@ def render(rows: list[dict]) -> str:
         f"<tr><td>{r['at'].replace('T', ' ').replace('+00:00', '')}</td>"
         f"<td>{_cell(r.get('battery_mv'))}</td><td>{_cell(r.get('wifi_ms'))}</td>"
         f"<td>{_cell(r.get('rssi'))}</td><td>{rssi_label(r['rssi'])}</td>"
+        f"<td>{_cell(r.get('chip_c'))}</td><td>{_cell(r.get('prev_awake_ms'))}</td>"
         f"<td>{_reset_cell(r.get('reset_reason'))}</td>"
         f"<td>{len(r.get('log') or []) or ''}</td></tr>"
         for r in recent
-    ) or '<tr><td colspan="7" class="empty">아직 보고가 없습니다.</td></tr>'
+    ) or '<tr><td colspan="9" class="empty">아직 보고가 없습니다.</td></tr>'
 
     last = rows[-1] if rows else {}
     bits = [f"보고 {len(rows)}건"]
