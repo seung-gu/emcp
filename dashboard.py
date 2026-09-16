@@ -13,6 +13,24 @@ RSSI_BANDS = ((-55, "강함"), (-65, "좋음"), (-75, "보통"), (-85, "약함")
 _WEAKEST = "매우 약함"
 
 
+# esp_reset_reason() -> 사람이 읽을 이름. 8 이 타이머 웨이크, 곧 정상이다. 1 은 전원이
+# 끊겼다 들어왔다는 뜻이고 9 는 배터리가 처지고 있다는 신호, 4~7 은 펌웨어가 죽은 것이다.
+RESET_KO = {
+    0: "알수없음", 1: "전원투입", 2: "외부핀", 3: "SW재시작", 4: "패닉",
+    5: "INT WDT", 6: "TASK WDT", 7: "WDT", 8: "딥슬립", 9: "브라운아웃", 10: "SDIO",
+}
+_NORMAL_RESET = 8
+
+LOG_KIND_KO = {
+    "wifi": "Wi-Fi 실패", "http": "서버 응답 실패", "portal-new": "최초 설정 포털",
+    "portal-lost": "네트워크 상실, 설정 포털", "portal-timeout": "포털 시간초과 → 무기한 대기",
+    "full": "로그 가득 참 (이후 기록 없음)", "unknown": "알수없음",
+}
+
+# wl_status_t. 이 경로에서 실제로 나올 수 있는 값만 적는다.
+WIFI_STATUS_KO = {0: "시작 못함", 1: "SSID 없음", 4: "인증 실패", 6: "연결 끊김"}
+
+
 def rssi_label(rssi: int) -> str:
     for floor, name in RSSI_BANDS:
         if rssi >= floor:
@@ -70,14 +88,55 @@ def _chart(rows: list[dict], key: str, unit: str, lo: int | None = None,
     )
 
 
+def _cell(v) -> str:
+    return "" if v is None else str(v)
+
+
+def _reset_cell(code) -> str:
+    """정상 웨이크(딥슬립)는 비워 둔다. 604줄이 전부 '딥슬립'이면 눈에 띄어야 할 나머지가
+    묻힌다 — 이 칸은 뭔가 다른 일이 있었다는 표시로만 쓴다."""
+    if code is None or code == _NORMAL_RESET:
+        return ""
+    return RESET_KO.get(code, f"코드 {code}")
+
+
+def _log_entry(e: dict) -> str:
+    """로그 한 줄. 종류마다 실려 오는 필드가 다르므로 있는 것만 뒤에 붙인다."""
+    bits = []
+    if (c := e.get("http_code")) is not None:
+        bits.append(f"코드 {c}")
+    if (s := e.get("wifi_status")) is not None:
+        bits.append(WIFI_STATUS_KO.get(s, f"상태 {s}"))
+    for key, unit in (("wifi_ms", " ms"), ("battery_mv", " mV"), ("rssi", " dBm")):
+        if (v := e.get(key)) is not None:
+            bits.append(f"{v}{unit}")
+    if (n := e.get("reset_reason")) is not None and n != _NORMAL_RESET:
+        bits.append(RESET_KO.get(n, f"코드 {n}"))
+    detail = f'<span class="dim">{" · ".join(bits)}</span>' if bits else ""
+    return f'<li>{LOG_KIND_KO.get(e["kind"], "알수없음")}{detail}</li>'
+
+
+def _logs(recent: list[dict]) -> str:
+    """보고에 실려 온 로그. 기기에 시계가 없어 항목마다 시각이 없으므로, 이것들을 데려온
+    보고의 도착 시각 아래에 순서대로 묶는다."""
+    blocks = [
+        f'<div class="logs"><b>{_hhmm(r["at"])}</b> 보고가 데려온 {len(r["log"])}건'
+        f'<ol>{"".join(_log_entry(e) for e in r["log"])}</ol></div>'
+        for r in recent if r.get("log")
+    ]
+    return "".join(blocks) or '<p class="empty">놓친 wake 가 없습니다.</p>'
+
+
 def render(rows: list[dict]) -> str:
     recent = rows[-50:][::-1]
     table = "".join(
         f"<tr><td>{r['at'].replace('T', ' ').replace('+00:00', '')}</td>"
-        f"<td>{r['battery_mv']}</td><td>{r['wifi_ms']}</td>"
-        f"<td>{r['rssi']}</td><td>{rssi_label(r['rssi'])}</td></tr>"
+        f"<td>{_cell(r.get('battery_mv'))}</td><td>{_cell(r.get('wifi_ms'))}</td>"
+        f"<td>{_cell(r.get('rssi'))}</td><td>{rssi_label(r['rssi'])}</td>"
+        f"<td>{_reset_cell(r.get('reset_reason'))}</td>"
+        f"<td>{len(r.get('log') or []) or ''}</td></tr>"
         for r in recent
-    ) or '<tr><td colspan="5" class="empty">아직 보고가 없습니다.</td></tr>'
+    ) or '<tr><td colspan="7" class="empty">아직 보고가 없습니다.</td></tr>'
 
     return _TEMPLATE.substitute(
         sub=f"보고 {len(rows)}건",
@@ -85,4 +144,5 @@ def render(rows: list[dict]) -> str:
         rssi=_chart(rows, "rssi", "dBm", lo=-100, hi=-40, guides=RSSI_BANDS),
         rssi_note=f"0 에 가까울수록 세다. 맨 아래 점선보다 낮으면 {_WEAKEST}.",
         table=table,
+        logs=_logs(recent),
     )

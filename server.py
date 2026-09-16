@@ -61,6 +61,35 @@ def _read_reports() -> list[dict]:
         return [json.loads(line) for line in f if line.strip()]
 
 
+# 기기가 보내는 로그 항목의 종류. 대시보드가 이 문자열을 이스케이프 없이 HTML 에 넣으므로
+# 화이트리스트로 거른다 — 기기가 지어낸 문자열은 페이지에 닿지 못한다.
+_LOG_KINDS = {"wifi", "http", "portal-new", "portal-lost", "portal-timeout", "full"}
+_LOG_FIELDS = ("wifi_attempts", "reset_reason", "battery_mv", "wifi_ms", "rssi",
+               "wifi_status", "http_code")
+
+
+def _int(v) -> int | None:
+    """숫자로 읽히면 int, 아니면 None. bool 은 숫자로 치지 않는다."""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _clean_entry(e: dict) -> dict:
+    """로그 한 항목에서 서버가 아는 키만 남긴다. 종류마다 실려 오는 필드가 달라서 없는 건
+    그냥 빠진다 — 자리를 채우지 않는다."""
+    kind = e.get("kind")
+    out = {"kind": kind if kind in _LOG_KINDS else "unknown"}
+    for k in _LOG_FIELDS:
+        v = _int(e.get(k))
+        if v is not None:
+            out[k] = v
+    return out
+
+
 def _set_led(on: bool) -> None:
     global _led_on
     _led_on = on
@@ -231,11 +260,23 @@ async def weather_report(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "bad body"}, status_code=400)
 
-    _append_report({
+    row = {
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "battery_mv": battery_mv, "wifi_ms": wifi_ms, "rssi": rssi,
-    })
-    print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm", flush=True)
+    }
+    # 나머지는 있으면 싣고 없으면 만다. 기기 펌웨어와 이 서버는 따로 배포되므로 한쪽이
+    # 아직 모르는 필드가 있어도 보고가 깨지면 안 된다.
+    for k in ("reset_reason", "wifi_attempts"):
+        v = _int(report.get(k))
+        if v is not None:
+            row[k] = v
+    log = report.get("log")
+    if isinstance(log, list) and log:
+        row["log"] = [_clean_entry(e) for e in log if isinstance(e, dict)]
+    _append_report(row)
+
+    tail = f" +{len(row['log'])} logged" if "log" in row else ""
+    print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm{tail}", flush=True)
 
     body, status = await _weather_body()
     return JSONResponse(body, status_code=status)
