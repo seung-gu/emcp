@@ -12,7 +12,7 @@
 2. 일반 HTTP 인터페이스 (ESP32 polling 용)
    - ESP32 는 MCP 프로토콜을 말하기 어려우므로, 단순 `GET /led` 로 현재 flag 를
      주기적으로 조회한다. 응답이 on 이면 LED 를 켜고 off 면 끈다.
-   - `GET /weather` 로 현재 설정된 위치의 날씨를 7줄 plain text 로 받아 표시한다.
+   - `POST /weather` 로 상태 보고를 올리면서 같은 응답으로 날씨 JSON 을 받아 표시한다.
 
 flag 와 위치는 프로세스 메모리에만 존재하는 휘발성 상태다. 프로세스가 재시작되면
 각각 off / 뮌헨 으로 초기화된다. Fly.io 에서는 볼륨을 붙이지 않는 한 파일도 재배포
@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, PlainTextResponse
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 import dashboard
 
@@ -168,8 +168,13 @@ def _stamp(utc_offset_seconds: int) -> str:
     return f"{t.month}/{t.day}({WEEKDAY[t.weekday()]}) {t.hour:02d}:{t.minute:02d}"
 
 
-async def _weather_body() -> tuple[str, int]:
-    """날씨 본문과 상태코드. 8줄: 도시/기온/상태/바람/습도/최고°최저°/강수%/날짜시각."""
+async def _weather_body() -> tuple[dict, int]:
+    """날씨 본문과 상태코드.
+
+    수치는 숫자로 보낸다. `°C` 나 `km/h` 는 표시 결정이라 기기가 붙인다. 조회에
+    실패하면 날씨 키를 통째로 빼고 도시만 남긴다 — 줄 단위 포맷과 달리 JSON 은
+    없는 값을 자리를 채워가며 설명할 필요가 없다.
+    """
     loc = dict(_location)  # 요청 처리 중 위치가 바뀌어도 한 응답 안에서는 일관되게.
     url = ("https://api.open-meteo.com/v1/forecast"
            f"?latitude={loc['lat']}&longitude={loc['lon']}"
@@ -188,31 +193,32 @@ async def _weather_body() -> tuple[str, int]:
         tmin  = round(daily["temperature_2m_min"][0])
         pop   = daily["precipitation_probability_max"][0] or 0           # 강수확률(None 방어)
         stamp = _stamp(data.get("utc_offset_seconds", 0))
-        return (f"{loc['name']}\n{temp}°C\n{desc}\n{wind}km/h\n{humid}%"
-                f"\n{tmax}°/{tmin}°\n{pop}%\n{stamp}", 200)
+        return ({"city": loc["name"], "temp_c": temp, "cond": desc, "wind_kmh": wind,
+                 "humidity": humid, "temp_max_c": tmax, "temp_min_c": tmin, "pop": pop,
+                 "stamp": stamp}, 200)
     except Exception:
-        # 8번째 줄을 비워 둔다: 조회에 실패했으면 시각도 믿을 게 못 된다.
-        return (f"{loc['name']}\n--°C\n조회실패\n--km/h\n--%\n--°/--°\n--%\n", 500)
+        # stamp 도 뺀다: 현지 시각 오프셋이 실패한 그 응답 안에 들어 있어서 서버도 모른다.
+        return ({"city": loc["name"]}, 500)
 
 
 @mcp.custom_route("/weather", methods=["GET"])
-async def weather(request: Request) -> PlainTextResponse:
+async def weather(request: Request) -> JSONResponse:
     """브라우저나 curl 로 확인할 때 쓰는 읽기 전용 경로. 기기는 POST 를 쓴다."""
     body, status = await _weather_body()
-    return PlainTextResponse(body, status_code=status)
+    return JSONResponse(body, status_code=status)
 
 
 @mcp.custom_route("/weather", methods=["POST"])
-async def weather_report(request: Request) -> PlainTextResponse:
-    """기기가 wake 마다 부르는 경로. 본문 'battery_mv,wifi_ms,rssi' 를 받고 날씨를 응답한다.
+async def weather_report(request: Request) -> JSONResponse:
+    """기기가 wake 마다 부르는 경로. 상태 보고를 받고 날씨를 응답한다.
 
     시각은 기기가 모르므로 서버 시계로 찍는다. 토큰 검증은 DB 를 붙일 때 함께 들어간다.
     """
-    raw = (await request.body()).decode("utf-8", "replace").strip()
     try:
-        battery_mv, wifi_ms, rssi = (int(v) for v in raw.split(","))
-    except ValueError:
-        return PlainTextResponse(f"bad body: {raw!r}", status_code=400)
+        report = await request.json()
+        battery_mv, wifi_ms, rssi = (int(report[k]) for k in ("battery_mv", "wifi_ms", "rssi"))
+    except Exception:
+        return JSONResponse({"error": "bad body"}, status_code=400)
 
     now = datetime.now(timezone.utc)
     cutoff = (now - timedelta(days=_KEEP_DAYS)).isoformat(timespec="seconds")
@@ -222,10 +228,10 @@ async def weather_report(request: Request) -> PlainTextResponse:
         "at": now.isoformat(timespec="seconds"),
         "battery_mv": battery_mv, "wifi_ms": wifi_ms, "rssi": rssi,
     })
-    print(f"report: {raw} ({len(_reports)} kept)", flush=True)
+    print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm ({len(_reports)} kept)", flush=True)
 
     body, status = await _weather_body()
-    return PlainTextResponse(body, status_code=status)
+    return JSONResponse(body, status_code=status)
 
 @mcp.custom_route("/dashboard", methods=["GET"])
 async def dashboard_page(request: Request) -> HTMLResponse:

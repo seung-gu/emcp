@@ -11,7 +11,7 @@ Claude / ChatGPT 가 MCP 도구로 LED flag 를 켜고/끄거나 날씨 위치�
 [ESP32 board]  ----GET /led     (polling)---->  │  location: 뮌헨 48,11   │
                ----GET /weather (polling)---->  └────────────────────────┘
    on 이면 LED ON, off 면 LED OFF                        │
-   /weather 7줄을 화면에 표시                    open-meteo (키 불필요)
+   /weather 응답을 화면에 표시                   open-meteo (키 불필요)
 ```
 
 두 인터페이스는 **in-memory 공유 상태** 를 함께 본다.
@@ -51,26 +51,31 @@ LLM 이 기억에 의존해 좌표를 넣으면 **틀려도 에러 없이 엉뚱
 | 메서드 & 경로 | 응답 | 용도 |
 |---------------|------|------|
 | `GET /led`    | `1` (on) 또는 `0` (off) — 1바이트 plain text | ESP32 가 주기적으로 조회 |
-| `GET /weather`| 7줄 plain text (아래) | ESP32 화면 표시 |
+| `GET /weather`| 날씨 JSON (아래) | 브라우저·curl 확인용 |
+| `POST /weather`| 날씨 JSON (아래) | ESP32 가 wake 마다 호출 |
 | `GET /health` | `ok` | Fly.io 헬스체크 |
 
 ESP32 는 `GET /led` 를 일정 주기로 호출해서 본문이 `1` 이면 LED 를 켜고 `0` 이면
 끄면 된다 (파싱 없이 첫 바이트만 비교).
 
-`GET /weather` 는 항상 **7줄 고정**이다:
+`POST /weather` 의 본문은 그 wake 의 상태 보고다. 날씨 요청에 얹혀 가므로 왕복이
+늘지 않는다:
 
-```
-뮌헨            ← 도시 이름
-19°C            ← 현재 기온
-구름 조금        ← WMO 코드 -> 한글
-4km/h           ← 풍속
-61%             ← 습도
-24°/17°         ← 오늘 최고/최저
-25%             ← 강수확률
+```json
+{"battery_mv": 3912, "wifi_ms": 184, "rssi": -58}
 ```
 
-조회 실패 시에도 줄 수는 7줄로 유지되지만 값이 `--` 이고 **HTTP 500** 을 반환한다.
-펌웨어가 상태 코드로 본문을 거르면 폴백이 표시되지 않으니 주의.
+응답은 두 경로가 같다. 수치는 숫자로 보내고 `°C` 나 `km/h` 는 기기가 붙인다:
+
+```json
+{"city": "뮌헨", "temp_c": 19, "cond": "구름 조금", "wind_kmh": 4,
+ "humidity": 61, "temp_max_c": 24, "temp_min_c": 17, "pop": 25,
+ "stamp": "9/11(Fri) 14:30"}
+```
+
+조회에 실패하면 날씨 키를 통째로 빼고 `{"city": "뮌헨"}` 만 남기며 **HTTP 500** 을
+반환한다. 펌웨어는 상태 코드로 본문을 거르니 이 폴백은 화면에 도달하지 않는다 —
+curl 로 볼 때만 보인다.
 
 ## 로컬 실행
 
@@ -84,7 +89,7 @@ uv run python server.py        # 기본 포트 8080, PORT 환경변수로 변경
 ```bash
 curl http://127.0.0.1:8080/led      # 0
 curl http://127.0.0.1:8080/health   # ok
-curl http://127.0.0.1:8080/weather  # 뮌헨 / 기온 / 상태 / 풍속 / 습도 / 최고최저 / 강수확률
+curl -s http://127.0.0.1:8080/weather | jq   # 날씨 JSON
 ```
 
 ## Fly.io 배포
