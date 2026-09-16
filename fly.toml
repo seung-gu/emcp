@@ -3,6 +3,14 @@ primary_region = "fra"
 
 [build]
 
+[env]
+  # 이 경로가 있어야 보고가 배포와 머신 재시작을 넘어 남는다. 아래 볼륨 위에 있다.
+  REPORTS_FILE = "/data/reports.json"
+
+[mounts]
+  source = "reports"
+  destination = "/data"
+
 [http_service]
   internal_port = 8080
   force_https = true

@@ -94,13 +94,40 @@ curl -s http://127.0.0.1:8080/weather | jq   # 날씨 JSON
 
 ## Fly.io 배포
 
+보고를 담아 둘 볼륨이 먼저 있어야 한다. `fly.toml` 의 `[mounts] source` 와 이름이
+같아야 하고, 한 번만 만들면 된다:
+
 ```bash
-fly launch --no-deploy   # 또는 기존 fly.toml 사용
+fly volumes create reports --size 1 --region fra
 fly deploy
 ```
 
 - MCP 엔드포인트: `https://<app>.fly.dev/mcp`
 - ESP32 polling: `https://<app>.fly.dev/led`, `https://<app>.fly.dev/weather`
+
+## 보고 보관
+
+`REPORTS_FILE` 이 가리키는 파일에 전체 목록을 매 보고마다 통째로 다시 쓴다. 30일치라야
+1440행 남짓이라 이 방식으로 충분하고, 덧붙이기와 달리 30일 프루닝이 파일에도 저절로
+반영된다. 환경변수가 없으면 메모리에만 남으므로 로컬 실행은 영향이 없다.
+
+`data/` 에는 볼륨을 붙이기 전의 기록이 있다:
+
+| 파일 | 내용 |
+|------|------|
+| `seed-reports.json` | 시각이 정확한 마지막 50건. 볼륨에 올려 두면 이어서 쌓인다 |
+| `reports-thru-2026-09-16.csv` | 9/11~9/16 의 604건. 배터리·RSSI 는 전부, 시각과 `wifi_ms` 는 마지막 50건만 |
+
+604건 중 554건에 시각이 없는 건 이 기록을 대시보드 HTML 에서 되살렸기 때문이다. 차트
+x축이 시각이 아니라 인덱스 기반이라 순서만 남았고, 보고 간격이 고르지 않아서(재시도와
+벤치 테스트가 섞여 있다) 없는 시각을 채워 넣지 않았다.
+
+시드를 볼륨에 올리려면:
+
+```bash
+fly ssh console -C "mkdir -p /data"
+fly ssh sftp shell        # put data/seed-reports.json /data/reports.json
+```
 
 ## 상태에 대한 주의
 
