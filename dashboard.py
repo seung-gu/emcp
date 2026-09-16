@@ -137,9 +137,11 @@ def _attach_awake(rows: list[dict]) -> None:
 
     wifi_attempts 가 1 일 때만 옮긴다. 1 보다 크면 그 사이에 서버까지 못 간 wake 가 있었다는
     뜻이고, 그러면 값은 앞 행이 아니라 그 실패한 wake 를 잰 것이다. 가장 최근 보고는 아직
-    다음 보고가 없으므로 자기 wake 시간을 모른 채로 남는다."""
+    다음 보고가 없으므로 자기 wake 시간을 모른 채로 남는다.
+
+    0 은 버린다. NVS 가 비어 있던 첫 부팅이 기본값으로 보낸 값이고, 옛 보고에 남아 있다."""
     for cur, nxt in zip(rows, rows[1:]):
-        if nxt.get("wifi_attempts") == 1 and (v := nxt.get("prev_awake_ms")) is not None:
+        if nxt.get("wifi_attempts") == 1 and (v := nxt.get("prev_awake_ms")):
             cur["awake_ms"] = v
 
 
