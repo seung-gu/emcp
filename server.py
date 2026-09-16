@@ -78,6 +78,24 @@ def _int(v) -> int | None:
         return None
 
 
+def _float(v) -> float | None:
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        return round(float(v), 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _tag(v) -> str | None:
+    """펌웨어 버전처럼 기기가 만든 짧은 문자열. 대시보드가 이스케이프 없이 HTML 에 넣으므로
+    태그가 될 수 있는 글자를 아예 통과시키지 않고, 길이도 자른다."""
+    if not isinstance(v, str):
+        return None
+    v = "".join(c for c in v[:24] if c.isalnum() or c in "._-")
+    return v or None
+
+
 def _clean_entry(e: dict) -> dict:
     """로그 한 항목에서 서버가 아는 키만 남긴다. 종류마다 실려 오는 필드가 달라서 없는 건
     그냥 빠진다 — 자리를 채우지 않는다."""
@@ -266,8 +284,10 @@ async def weather_report(request: Request) -> JSONResponse:
     }
     # 나머지는 있으면 싣고 없으면 만다. 기기 펌웨어와 이 서버는 따로 배포되므로 한쪽이
     # 아직 모르는 필드가 있어도 보고가 깨지면 안 된다.
-    for k in ("reset_reason", "wifi_attempts"):
-        v = _int(report.get(k))
+    for k, clean in (("reset_reason", _int), ("wifi_attempts", _int),
+                     ("prev_awake_ms", _int), ("nvs_free", _int),
+                     ("chip_c", _float), ("fw", _tag)):
+        v = clean(report.get(k))
         if v is not None:
             row[k] = v
     log = report.get("log")

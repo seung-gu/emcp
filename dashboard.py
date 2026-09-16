@@ -52,6 +52,9 @@ def _chart(rows: list[dict], key: str, unit: str, lo: int | None = None,
     lo/hi 를 주면 축을 고정한다. 신호세기처럼 절대값에 의미가 있는 값은 자동 스케일로
     그리면 평평한 구간이 요동처럼 보인다.
     """
+    # 이 값이 없는 보고는 뺀다. 필드는 나중에 생기기도 하므로 옛 행에는 없고, 한 행만 비어도
+    # 페이지 전체가 못 그려진다. rows 를 먼저 걸러야 아래 x축 라벨이 실제로 그린 점과 맞는다.
+    rows = [r for r in rows if isinstance(r.get(key), (int, float))]
     values = [r[key] for r in rows]
     if len(values) < 2:
         return '<p class="empty">그래프를 그리려면 보고가 2건 이상 필요합니다.</p>'
@@ -138,11 +141,20 @@ def render(rows: list[dict]) -> str:
         for r in recent
     ) or '<tr><td colspan="7" class="empty">아직 보고가 없습니다.</td></tr>'
 
+    last = rows[-1] if rows else {}
+    bits = [f"보고 {len(rows)}건"]
+    if last.get("fw"):
+        bits.append(f"펌웨어 {last['fw']}")
+    if last.get("nvs_free") is not None:
+        bits.append(f"NVS 여유 {last['nvs_free']}엔트리")
+
     return _TEMPLATE.substitute(
-        sub=f"보고 {len(rows)}건",
+        sub=" · ".join(bits),
         battery=_chart(rows, "battery_mv", "mV"),
         rssi=_chart(rows, "rssi", "dBm", lo=-100, hi=-40, guides=RSSI_BANDS),
         rssi_note=f"0 에 가까울수록 세다. 맨 아래 점선보다 낮으면 {_WEAKEST}.",
+        awake=_chart(rows, "prev_awake_ms", "ms"),
+        chip=_chart(rows, "chip_c", "°C"),
         table=table,
         logs=_logs(recent),
     )
