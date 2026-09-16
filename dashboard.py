@@ -130,13 +130,27 @@ def _logs(recent: list[dict]) -> str:
     return "".join(blocks) or '<p class="empty">놓친 wake 가 없습니다.</p>'
 
 
+def _attach_awake(rows: list[dict]) -> None:
+    """기기가 보내는 prev_awake_ms 는 그 보고가 아니라 **그 앞** wake 를 잰 값이다. 자기 wake
+    는 화면까지 그린 뒤에야 끝나는데 보고는 그전에 떠나서 그렇다. 한 칸 당겨서 실제로 잰 행에
+    붙인다.
+
+    wifi_attempts 가 1 일 때만 옮긴다. 1 보다 크면 그 사이에 서버까지 못 간 wake 가 있었다는
+    뜻이고, 그러면 값은 앞 행이 아니라 그 실패한 wake 를 잰 것이다. 가장 최근 보고는 아직
+    다음 보고가 없으므로 자기 wake 시간을 모른 채로 남는다."""
+    for cur, nxt in zip(rows, rows[1:]):
+        if nxt.get("wifi_attempts") == 1 and (v := nxt.get("prev_awake_ms")) is not None:
+            cur["awake_ms"] = v
+
+
 def render(rows: list[dict]) -> str:
+    _attach_awake(rows)
     recent = rows[-50:][::-1]
     table = "".join(
         f"<tr><td>{r['at'].replace('T', ' ').replace('+00:00', '')}</td>"
         f"<td>{_cell(r.get('battery_mv'))}</td><td>{_cell(r.get('wifi_ms'))}</td>"
         f"<td>{_cell(r.get('rssi'))}</td><td>{rssi_label(r['rssi'])}</td>"
-        f"<td>{_cell(r.get('chip_c'))}</td><td>{_cell(r.get('prev_awake_ms'))}</td>"
+        f"<td>{_cell(r.get('chip_c'))}</td><td>{_cell(r.get('awake_ms'))}</td>"
         f"<td>{_reset_cell(r.get('reset_reason'))}</td>"
         f"<td>{len(r.get('log') or []) or ''}</td></tr>"
         for r in recent
@@ -154,7 +168,7 @@ def render(rows: list[dict]) -> str:
         battery=_chart(rows, "battery_mv", "mV"),
         rssi=_chart(rows, "rssi", "dBm", lo=-100, hi=-40, guides=RSSI_BANDS),
         rssi_note=f"0 에 가까울수록 세다. 맨 아래 점선보다 낮으면 {_WEAKEST}.",
-        awake=_chart(rows, "prev_awake_ms", "ms"),
+        awake=_chart(rows, "awake_ms", "ms"),
         chip=_chart(rows, "chip_c", "°C"),
         table=table,
         logs=_logs(recent),
