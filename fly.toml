@@ -5,7 +5,7 @@ primary_region = "fra"
 
 [env]
   # 이 경로가 있어야 보고가 배포와 머신 재시작을 넘어 남는다. 아래 볼륨 위에 있다.
-  REPORTS_FILE = "/data/reports.json"
+  REPORTS_FILE = "/data/reports.jsonl"
 
 [mounts]
   source = "reports"

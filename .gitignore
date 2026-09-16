@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# 로컬 실행이 쌓는 보고. Fly 에서는 볼륨 위에 있다.
+reports.jsonl

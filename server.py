@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import os
-from collections import deque
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -44,37 +43,22 @@ _led_on = False
 # 날씨를 조회할 위치. 기본값은 뮌헨이고 MCP 도구로 바꾼다.
 _location = {"name": "뮌헨", "lat": 48.14, "lon": 11.58}
 
-# 기기 상태 보고. 30일 지나면 버리고, maxlen 은 기기가 폭주할 때를 대비한 상한이다.
-_KEEP_DAYS = 30
-_MAX_REPORTS = 5000
-_reports = deque(maxlen=_MAX_REPORTS)
-
-# 볼륨 위의 경로를 주면 재배포와 머신 재시작을 넘어 살아남는다. 비워 두면 메모리에만
-# 남으므로 로컬 실행은 지금까지와 똑같이 동작한다.
-_STORE = os.getenv("REPORTS_FILE", "")
+# 기기 상태 보고. 한 줄에 한 건씩 파일에 쌓고, 대시보드를 열 때 읽는다. 버리지 않는다 —
+# 30분에 한 건이라 1년이 1MB 도 안 된다. Fly 에서는 볼륨 위를 가리켜서 재배포와 머신
+# 재시작을 넘어 남게 한다 (fly.toml 의 REPORTS_FILE).
+_STORE = os.getenv("REPORTS_FILE", "reports.jsonl")
 
 
-def _load_reports() -> None:
-    if not _STORE or not os.path.exists(_STORE):
-        return
+def _append_report(row: dict) -> None:
+    with open(_STORE, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _read_reports() -> list[dict]:
+    if not os.path.exists(_STORE):
+        return []
     with open(_STORE, encoding="utf-8") as f:
-        _reports.extend(json.load(f))
-    print(f"loaded {len(_reports)} reports from {_STORE}", flush=True)
-
-
-def _save_reports() -> None:
-    """통째로 다시 쓴다. 30일치라야 1440행 남짓이라 30분에 한 번은 무시할 비용이고,
-    덧붙이기와 달리 30일 프루닝이 파일에도 저절로 반영된다. 임시 파일에 쓰고 바꿔치기
-    하는 건 쓰는 중에 머신이 내려가도 기존 파일이 남게 하려는 것이다."""
-    if not _STORE:
-        return
-    tmp = _STORE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(list(_reports), f, ensure_ascii=False)
-    os.replace(tmp, _STORE)
-
-
-_load_reports()
+        return [json.loads(line) for line in f if line.strip()]
 
 
 def _set_led(on: bool) -> None:
@@ -247,16 +231,11 @@ async def weather_report(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "bad body"}, status_code=400)
 
-    now = datetime.now(timezone.utc)
-    cutoff = (now - timedelta(days=_KEEP_DAYS)).isoformat(timespec="seconds")
-    while _reports and _reports[0]["at"] < cutoff:   # ISO 문자열은 사전순 = 시간순
-        _reports.popleft()
-    _reports.append({
-        "at": now.isoformat(timespec="seconds"),
+    _append_report({
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "battery_mv": battery_mv, "wifi_ms": wifi_ms, "rssi": rssi,
     })
-    _save_reports()
-    print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm ({len(_reports)} kept)", flush=True)
+    print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm", flush=True)
 
     body, status = await _weather_body()
     return JSONResponse(body, status_code=status)
@@ -264,7 +243,7 @@ async def weather_report(request: Request) -> JSONResponse:
 @mcp.custom_route("/dashboard", methods=["GET"])
 async def dashboard_page(request: Request) -> HTMLResponse:
     """기기가 보내온 보고를 훑어보는 페이지. 메모리에 있는 것만 보여준다."""
-    return HTMLResponse(dashboard.render(list(_reports), _KEEP_DAYS, _MAX_REPORTS))
+    return HTMLResponse(dashboard.render(_read_reports()))
 
 
 if __name__ == "__main__":

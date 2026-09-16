@@ -70,7 +70,7 @@ def _chart(rows: list[dict], key: str, unit: str, lo: int | None = None,
     )
 
 
-def render(rows: list[dict], keep_days: int, max_reports: int) -> str:
+def render(rows: list[dict]) -> str:
     recent = rows[-50:][::-1]
     table = "".join(
         f"<tr><td>{r['at'].replace('T', ' ').replace('+00:00', '')}</td>"
@@ -80,8 +80,7 @@ def render(rows: list[dict], keep_days: int, max_reports: int) -> str:
     ) or '<tr><td colspan="5" class="empty">아직 보고가 없습니다.</td></tr>'
 
     return _TEMPLATE.substitute(
-        sub=f"보고 {len(rows)}건 · {keep_days}일 보관 (최대 {max_reports}건)"
-            " · 재배포하면 초기화됩니다",
+        sub=f"보고 {len(rows)}건",
         battery=_chart(rows, "battery_mv", "mV"),
         rssi=_chart(rows, "rssi", "dBm", lo=-100, hi=-40, guides=RSSI_BANDS),
         rssi_note=f"0 에 가까울수록 세다. 맨 아래 점선보다 낮으면 {_WEAKEST}.",
