@@ -143,8 +143,23 @@ def _attach_awake(rows: list[dict]) -> None:
             cur["awake_ms"] = v
 
 
+def _attach_nvs(rows: list[dict]) -> int | None:
+    """남은 칸을 쓴 칸으로 뒤집는다. 차오르는 그림이 "채워지고 있나"를 묻기에 자연스럽고,
+    축을 0~전체로 고정하면 여유가 얼마나 남았는지가 선의 높이로 바로 보인다.
+
+    전체 칸수는 기기마다 고정이라, 한 번이라도 실려 온 값을 나머지 행에도 쓴다 — 이 필드가
+    생기기 전의 보고에는 남은 칸만 있다."""
+    total = next((r["nvs_total"] for r in reversed(rows) if r.get("nvs_total")), None)
+    if total:
+        for r in rows:
+            if (free := r.get("nvs_free")) is not None:
+                r["nvs_used"] = total - free
+    return total
+
+
 def render(rows: list[dict]) -> str:
     _attach_awake(rows)
+    nvs_total = _attach_nvs(rows)
     recent = rows[-50:][::-1]
     table = "".join(
         f"<tr><td>{r['at'].replace('T', ' ').replace('+00:00', '')}</td>"
@@ -171,6 +186,7 @@ def render(rows: list[dict]) -> str:
         rssi_note=f"0 에 가까울수록 세다. 맨 아래 점선보다 낮으면 {_WEAKEST}.",
         awake=_chart(rows, "awake_ms", "ms"),
         chip=_chart(rows, "chip_c", "°C"),
+        nvs=_chart(rows, "nvs_used", "엔트리", lo=0, hi=nvs_total),
         table=table,
         logs=_logs(recent),
     )
