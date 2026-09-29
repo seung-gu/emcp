@@ -7,7 +7,7 @@
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 ui-sans-serif, system-ui, sans-serif;
-         margin: 0 auto; padding: 24px; max-width: 940px; }
+         margin: 0 auto; padding: 24px; max-width: 1060px; }
   h1 { font-size: 1.25rem; margin: 0 0 4px; }
   h2 { font-size: .95rem; margin: 28px 0 8px; }
   .sub { opacity: .65; margin: 0 0 24px; font-size: .875rem; }
@@ -27,7 +27,7 @@
            border-bottom: 1px solid rgba(128,128,128,.25); }
   th:first-child, td:first-child { text-align: left; }
   /* 글자가 들어가는 칸만 좌정렬. 나머지는 숫자라 우정렬이 자리를 맞춘다. */
-  th:nth-child(5), td:nth-child(5), th:nth-child(8), td:nth-child(8) { text-align: left; }
+  th:nth-child(5), td:nth-child(5), th:nth-child(10), td:nth-child(10) { text-align: left; }
   th { font-weight: 600; opacity: .65; font-size: .8rem; }
   .empty { opacity: .5; text-align: center; padding: 24px; }
   /* 칸 이름만으로는 안 통하는 열들의 설명. 표 바로 아래 둔다. */
@@ -80,7 +80,8 @@ $nvs
 <h2>최근 보고</h2>
 <table>
   <tr><th>시각 (UTC)</th><th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th>
-      <th>온도 °C</th><th>wake ms</th><th>리셋 사유</th><th>못 보낸 보고</th></tr>
+      <th>칩 °C</th><th>실내 °C</th><th>습도 %</th>
+      <th>wake ms</th><th>리셋 사유</th><th>못 보낸 보고</th></tr>
   $table
 </table>
 <dl class="legend">
