@@ -206,6 +206,8 @@ def render(rows: list[dict]) -> str:
         rssi_note=f"0 에 가까울수록 세다. 맨 아래 점선보다 낮으면 {_WEAKEST}.",
         awake=_chart(rows, "awake_ms", "ms"),
         chip=_chart(rows, "chip_c", "°C"),
+        room_c=_chart(rows, "room_c", "°C"),
+        room_rh=_chart(rows, "room_rh", "%"),
         nvs=_chart(rows, "nvs_used", "엔트리", lo=0, hi=nvs_total),
         table=table,
         logs=_logs(recent),
