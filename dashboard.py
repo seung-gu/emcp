@@ -30,6 +30,11 @@ LOG_KIND_KO = {
 # wl_status_t. 이 경로에서 실제로 나올 수 있는 값만 적는다.
 WIFI_STATUS_KO = {0: "시작 못함", 1: "SSID 없음", 4: "인증 실패", 6: "연결 끊김"}
 
+# 기기가 가끔 2 mV 같은 값을 올린다. 리튬셀은 보호회로가 그전에 끊으므로 이 전압까지
+# 내려가지 않는다. 전압이 아니라 측정 실패로 보고 버린다. 파일에는 그대로 두고 화면에서만
+# 빼므로 기준을 바꾸면 지난 보고도 다시 판정된다.
+_BATTERY_MIN_MV = 2000
+
 
 def rssi_label(rssi: int) -> str:
     for floor, name in RSSI_BANDS:
@@ -130,6 +135,18 @@ def _logs(recent: list[dict]) -> str:
     return "".join(blocks) or '<p class="empty">못 보낸 보고가 없습니다.</p>'
 
 
+def _drop_bad_battery(rows: list[dict]) -> None:
+    """측정 실패로 보이는 배터리 값을 지운다. 값이 아예 없는 보고와 같아져서 그래프에서는
+    빠지고 표에서는 빈 칸이 된다.
+
+    그래프는 자동 스케일이라 2 mV 한 건이 축 아래끝을 거기까지 내린다. 그러면 나머지
+    3000 mV 대가 전부 맨 위에 눌린 직선이 된다."""
+    for row in rows:
+        for holder in (row, *(row.get("log") or ())):
+            if (v := holder.get("battery_mv")) is not None and v < _BATTERY_MIN_MV:
+                del holder["battery_mv"]
+
+
 def _attach_awake(rows: list[dict]) -> None:
     """기기가 보내는 prev_awake_ms 는 그 보고가 아니라 **그 앞** wake 를 잰 값이다. 자기 wake
     는 화면까지 그린 뒤에야 끝나는데 보고는 그전에 떠나서 그렇다. 한 칸 당겨서 실제로 잰 행에
@@ -160,6 +177,7 @@ def _attach_nvs(rows: list[dict]) -> int | None:
 
 
 def render(rows: list[dict]) -> str:
+    _drop_bad_battery(rows)
     _attach_awake(rows)
     nvs_total = _attach_nvs(rows)
     recent = rows[-50:][::-1]
