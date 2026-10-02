@@ -156,10 +156,18 @@ def _attach_awake(rows: list[dict]) -> None:
     뜻이고, 그러면 값은 앞 행이 아니라 그 실패한 wake 를 잰 것이다. 가장 최근 보고는 아직
     다음 보고가 없으므로 자기 wake 시간을 모른 채로 남는다.
 
-    0 은 버린다. NVS 가 비어 있던 첫 부팅이 기본값으로 보낸 값이고, 옛 보고에 남아 있다."""
-    for cur, nxt in zip(rows, rows[1:]):
-        if nxt.get("wifi_attempts") == 1 and (v := nxt.get("prev_awake_ms")):
-            cur["awake_ms"] = v
+    0 은 버린다. NVS 가 비어 있던 첫 부팅이 기본값으로 보낸 값이고, 옛 보고에 남아 있다.
+
+    기기별로 묶고 나서 당긴다. 여러 대가 한 파일에 섞이면 바로 다음 행은 다른 기기의 보고라,
+    그냥 당기면 남의 wake 시간을 가져다 붙인다. mac 이 없는 옛 보고는 한 덩어리로 묶이는데,
+    그 구간에 두 대가 섞여 있었다면 그 값들은 바로잡을 방법이 없다."""
+    by_mac: dict = {}
+    for r in rows:
+        by_mac.setdefault(r.get("mac"), []).append(r)
+    for group in by_mac.values():
+        for cur, nxt in zip(group, group[1:]):
+            if nxt.get("wifi_attempts") == 1 and (v := nxt.get("prev_awake_ms")):
+                cur["awake_ms"] = v
 
 
 def _attach_nvs(rows: list[dict]) -> int | None:

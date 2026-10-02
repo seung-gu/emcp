@@ -282,6 +282,10 @@ async def weather_report(request: Request) -> JSONResponse:
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "battery_mv": battery_mv, "wifi_ms": wifi_ms, "rssi": rssi,
     }
+    # 어느 기기가 보냈나. 이게 없으면 여러 대가 한 줄로 섞여서, 앞 행과 비교하는 것들이
+    # (배터리 추세, wake 시간) 서로 다른 기기를 비교하게 된다.
+    if (mac := _tag(report.get("mac"))):
+        row["mac"] = mac
     # 나머지는 있으면 싣고 없으면 만다. 기기 펌웨어와 이 서버는 따로 배포되므로 한쪽이
     # 아직 모르는 필드가 있어도 보고가 깨지면 안 된다.
     for k, clean in (("reset_reason", _int), ("wifi_attempts", _int),
