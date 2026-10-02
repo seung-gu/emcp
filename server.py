@@ -308,8 +308,12 @@ async def weather_report(request: Request) -> JSONResponse:
 
 @mcp.custom_route("/dashboard", methods=["GET"])
 async def dashboard_page(request: Request) -> HTMLResponse:
-    """기기가 보내온 보고를 훑어보는 페이지. 메모리에 있는 것만 보여준다."""
-    return HTMLResponse(dashboard.render(_read_reports()))
+    """기기가 보내온 보고를 훑어보는 페이지.
+
+    ?mac=... 을 주면 그 기기만. 안 주면 전부 섞어서 보여주고 표에 mac 열이 붙는다.
+    """
+    return HTMLResponse(dashboard.render(_read_reports(),
+                                         _tag(request.query_params.get("mac"))))
 
 
 if __name__ == "__main__":

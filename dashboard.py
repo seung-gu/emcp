@@ -184,13 +184,35 @@ def _attach_nvs(rows: list[dict]) -> int | None:
     return total
 
 
-def render(rows: list[dict]) -> str:
+def _device_links(rows: list[dict], mac: str | None) -> str:
+    """보고를 보낸 적 있는 기기 목록. 섞여 있을 때 한 대만 떼어 보는 입구다."""
+    seen = {}
+    for r in rows:
+        if r.get("mac"):
+            seen[r["mac"]] = r["at"]
+    if not seen:
+        return ""
+    links = [f'<a href="/dashboard"{" class=\'on\'" if not mac else ""}>전체</a>']
+    for m, at in sorted(seen.items()):
+        on = " class='on'" if m == mac else ""
+        links.append(f'<a href="/dashboard?mac={m}"{on}>{m}<span class="dim">{_hhmm(at)}</span></a>')
+    return f'<p class="devices">{"".join(links)}</p>'
+
+
+def render(rows: list[dict], mac: str | None = None) -> str:
+    # 기기별로 갈라야 하는 것(_attach_awake)은 전체를 보고 처리한 뒤에 거른다.
     _drop_bad_battery(rows)
     _attach_awake(rows)
+    devices = _device_links(rows, mac)
+    if mac:
+        rows = [r for r in rows if r.get("mac") == mac]
     nvs_total = _attach_nvs(rows)
     recent = rows[-50:][::-1]
+    # mac 열은 섞어서 볼 때만. 한 대만 보는 중이면 모든 행이 같은 값이라 자리만 차지한다.
+    mac_cell = (lambda r: "") if mac else (lambda r: f"<td>{_cell(r.get('mac'))}</td>")
     table = "".join(
         f"<tr><td>{r['at'].replace('T', ' ').replace('+00:00', '')}</td>"
+        f"{mac_cell(r)}"
         f"<td>{_cell(r.get('battery_mv'))}</td><td>{_cell(r.get('wifi_ms'))}</td>"
         f"<td>{_cell(r.get('rssi'))}</td><td>{rssi_label(r['rssi'])}</td>"
         f"<td>{_cell(r.get('chip_c'))}</td>"
@@ -199,10 +221,10 @@ def render(rows: list[dict]) -> str:
         f"<td>{_reset_cell(r.get('reset_reason'))}</td>"
         f"<td>{len(r.get('log') or []) or ''}</td></tr>"
         for r in recent
-    ) or '<tr><td colspan="11" class="empty">아직 보고가 없습니다.</td></tr>'
+    ) or f'<tr><td colspan="{11 if mac else 12}" class="empty">아직 보고가 없습니다.</td></tr>'
 
     last = rows[-1] if rows else {}
-    bits = [f"보고 {len(rows)}건"]
+    bits = [f"보고 {len(rows)}건" + ("" if mac else " (전체 기기)")]
     if last.get("fw"):
         bits.append(f"펌웨어 {last['fw']}")
     if (free := last.get("nvs_free")) is not None:
@@ -210,6 +232,8 @@ def render(rows: list[dict]) -> str:
         bits.append(f"NVS {free}/{total} 엔트리 남음" if total else f"NVS {free}엔트리 남음")
 
     return _TEMPLATE.substitute(
+        devices=devices,
+        mac_th="" if mac else "<th>기기</th>",
         sub=" · ".join(bits),
         battery=_chart(rows, "battery_mv", "mV"),
         rssi=_chart(rows, "rssi", "dBm", lo=-100, hi=-40, guides=RSSI_BANDS),

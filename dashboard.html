@@ -34,6 +34,12 @@
   .legend { font-size: .78rem; opacity: .7; margin: 10px 0 0; }
   .legend dt { font-weight: 600; margin-top: 8px; }
   .legend dd { margin: 2px 0 0; }
+  /* 기기 고르는 줄. 한 대만 볼 때는 그 기기에 테두리가 진하게 남는다. */
+  .devices { display: flex; flex-wrap: wrap; gap: 6px; margin: -16px 0 24px; }
+  .devices a { font-size: .78rem; text-decoration: none; color: inherit; padding: 3px 9px;
+               border: 1px solid rgba(128,128,128,.35); border-radius: 999px; opacity: .65; }
+  .devices a.on { opacity: 1; border-color: currentColor; font-weight: 600; }
+  .devices .dim { margin-left: 6px; }
   .logs { margin: 10px 0 16px; font-size: .85rem; }
   .logs ol { margin: 4px 0 0; padding-left: 22px; }
   .logs li { padding: 1px 0; }
@@ -43,6 +49,7 @@
 <body>
 <h1>기기 상태</h1>
 <p class="sub">$sub</p>
+$devices
 
 <h2>배터리</h2>
 $battery
@@ -79,7 +86,7 @@ $nvs
 
 <h2>최근 보고</h2>
 <table>
-  <tr><th>시각 (UTC)</th><th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th>
+  <tr><th>시각 (UTC)</th>$mac_th<th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th>
       <th>칩 °C</th><th>실내 °C</th><th>습도 %</th>
       <th>wake ms</th><th>리셋 사유</th><th>못 보낸 보고</th></tr>
   $table
