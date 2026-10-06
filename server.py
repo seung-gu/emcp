@@ -217,13 +217,14 @@ WEEKDAY = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def _stamp(utc_offset_seconds: int) -> str:
-    """조회 위치의 현지 시각을 '9/11(Fri) 14:30' 으로. 기기가 그대로 화면에 찍는다.
+    """조회 위치의 현지 시각을 'Fri 14:30' 으로. 기기가 그대로 화면에 찍는다.
 
-    요일이 영문인 건 기기 하단줄 폰트에 한글 글리프가 없어서다. 시각을 응답의
+    요일이 영문인 건 기기가 쓰는 작은 폰트에 한글 글리프가 없어서다. 시각을 응답의
     current.time 이 아니라 서버 시계로 만드는 건 그 값이 15분 단위로 끊겨서다.
+    월/일을 뺀 건 이 줄이 화면 좌상단으로 올라가면서 도시 이름과 폭을 나눠 쓰게 돼서다.
     """
     t = datetime.now(timezone.utc) + timedelta(seconds=utc_offset_seconds)
-    return f"{t.month}/{t.day}({WEEKDAY[t.weekday()]}) {t.hour:02d}:{t.minute:02d}"
+    return f"{WEEKDAY[t.weekday()]} {t.hour:02d}:{t.minute:02d}"
 
 
 async def _weather_body() -> tuple[dict, int]:

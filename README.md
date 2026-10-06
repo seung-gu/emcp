@@ -70,7 +70,7 @@ ESP32 는 `GET /led` 를 일정 주기로 호출해서 본문이 `1` 이면 LED 
 ```json
 {"city": "뮌헨", "temp_c": 19, "cond": "구름 조금", "wind_kmh": 4,
  "humidity": 61, "temp_max_c": 24, "temp_min_c": 17, "pop": 25,
- "stamp": "9/11(Fri) 14:30"}
+ "stamp": "Fri 14:30"}
 ```
 
 조회에 실패하면 날씨 키를 통째로 빼고 `{"city": "뮌헨"}` 만 남기며 **HTTP 500** 을
