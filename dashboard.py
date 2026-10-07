@@ -108,6 +108,16 @@ def _reset_cell(code) -> str:
     return RESET_KO.get(code, f"코드 {code}")
 
 
+def _stuck_cell(v) -> str:
+    """막혀 있던 wake 만 표시한다. _reset_cell 과 같은 이유로 비어 있는 게 기본이다 — 거의
+    모든 행이 정상이라 false 를 전부 찍으면 드문 쪽이 묻힌다.
+
+    필드 자체가 없으면 복구를 모르는 펌웨어라, 정상과 구분해서 물음표로 둔다."""
+    if v is None:
+        return '<span class="dim">?</span>'
+    return "막힘" if v else ""
+
+
 def _log_entry(e: dict) -> str:
     """로그 한 줄. 종류마다 실려 오는 필드가 다르므로 있는 것만 뒤에 붙인다."""
     bits = []
@@ -217,11 +227,12 @@ def render(rows: list[dict], mac: str | None = None) -> str:
         f"<td>{_cell(r.get('rssi'))}</td><td>{rssi_label(r['rssi'])}</td>"
         f"<td>{_cell(r.get('chip_c'))}</td>"
         f"<td>{_cell(r.get('room_c'))}</td><td>{_cell(r.get('room_rh'))}</td>"
+        f"<td>{_stuck_cell(r.get('room_stuck'))}</td>"
         f"<td>{_cell(r.get('awake_ms'))}</td>"
         f"<td>{_reset_cell(r.get('reset_reason'))}</td>"
         f"<td>{len(r.get('log') or []) or ''}</td></tr>"
         for r in recent
-    ) or f'<tr><td colspan="{11 if mac else 12}" class="empty">아직 보고가 없습니다.</td></tr>'
+    ) or f'<tr><td colspan="{12 if mac else 13}" class="empty">아직 보고가 없습니다.</td></tr>'
 
     last = rows[-1] if rows else {}
     bits = [f"보고 {len(rows)}건" + ("" if mac else " (전체 기기)")]
@@ -230,6 +241,12 @@ def render(rows: list[dict], mac: str | None = None) -> str:
     if (free := last.get("nvs_free")) is not None:
         total = last.get("nvs_total")
         bits.append(f"NVS {free}/{total} 엔트리 남음" if total else f"NVS {free}엔트리 남음")
+    # 복구를 아는 펌웨어가 보낸 보고 중 몇 건이 막힌 버스를 만났나. 분모가 전체가 아니라
+    # 그 펌웨어의 보고 수인 건, 그 전 보고들에는 필드가 아예 없어서다.
+    knows = [r for r in rows if r.get("room_stuck") is not None]
+    if knows:
+        stuck = sum(1 for r in knows if r["room_stuck"])
+        bits.append(f"버스 막힘 {stuck}/{len(knows)}건")
 
     return _TEMPLATE.substitute(
         devices=devices,

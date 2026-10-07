@@ -87,6 +87,12 @@ def _float(v) -> float | None:
         return None
 
 
+def _bool(v) -> bool | None:
+    """참/거짓만 통과. 0/1 이나 "true" 는 받지 않는다 — 기기가 보내는 건 JSON 불린이고,
+    여기서 느슨하게 받으면 필드가 없는 것과 false 가 섞인다."""
+    return v if isinstance(v, bool) else None
+
+
 def _tag(v) -> str | None:
     """펌웨어 버전처럼 기기가 만든 짧은 문자열. 대시보드가 이스케이프 없이 HTML 에 넣으므로
     태그가 될 수 있는 글자를 아예 통과시키지 않고, 길이도 자른다."""
@@ -292,7 +298,7 @@ async def weather_report(request: Request) -> JSONResponse:
     for k, clean in (("reset_reason", _int), ("wifi_attempts", _int),
                      ("prev_awake_ms", _int), ("nvs_free", _int), ("nvs_total", _int),
                      ("chip_c", _float), ("room_c", _float), ("room_rh", _float),
-                     ("fw", _tag)):
+                     ("room_stuck", _bool), ("fw", _tag)):
         v = clean(report.get(k))
         if v is not None:
             row[k] = v
@@ -302,6 +308,7 @@ async def weather_report(request: Request) -> JSONResponse:
     _append_report(row)
 
     tail = f" +{len(row['log'])} logged" if "log" in row else ""
+    tail += " i2c-unstuck" if row.get("room_stuck") else ""
     print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm{tail}", flush=True)
 
     body, status = await _weather_body()
