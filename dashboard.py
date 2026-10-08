@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from string import Template
@@ -108,14 +109,30 @@ def _reset_cell(code) -> str:
     return RESET_KO.get(code, f"코드 {code}")
 
 
-def _stuck_cell(v) -> str:
-    """막혀 있던 wake 만 표시한다. _reset_cell 과 같은 이유로 비어 있는 게 기본이다 — 거의
-    모든 행이 정상이라 false 를 전부 찍으면 드문 쪽이 묻힌다.
+ROOM_ERR_KO = {"probe": "주소무응답", "write": "명령거부", "read": "읽기실패", "crc": "CRC불일치"}
 
-    필드 자체가 없으면 복구를 모르는 펌웨어라, 정상과 구분해서 물음표로 둔다."""
-    if v is None:
+
+def _i2c_cell(r: dict) -> str:
+    """센서 읽기가 실패한 이유. _reset_cell 과 같은 이유로 정상이면 빈 칸이다 — 거의 모든
+    행이 정상이라 'ok' 를 전부 찍으면 드문 쪽이 묻힌다.
+
+    진단 필드가 아예 없는 보고는 그걸 보낼 줄 모르는 펌웨어라, 정상과 구분해 물음표로 둔다.
+    끊김 표시(SDA↓/SCL↓)는 모듈 풀업이 내부 풀다운에 졌다는 뜻 — 선이 끊겼거나 모듈에
+    전원이 없다. 성공한 행에 이게 뜨면 풀업이 45k 보다 약한 거라 그 표시 자체가 무의미하다."""
+    if r.get("room_err") is None and r.get("room_stuck") is None:
         return '<span class="dim">?</span>'
-    return "막힘" if v else ""
+    bits = []
+    if r.get("room_stuck"):
+        bits.append("막힘")
+    if r.get("room_sda") is False:
+        bits.append("SDA↓")
+    if r.get("room_scl") is False:
+        bits.append("SCL↓")
+    if (err := r.get("room_err")) and err != "ok":
+        bits.append(ROOM_ERR_KO.get(err, err))
+    if (ack := r.get("room_ack")):
+        bits.append(f"ACK {ack}")
+    return " ".join(bits)
 
 
 def _log_entry(e: dict) -> str:
@@ -227,7 +244,7 @@ def render(rows: list[dict], mac: str | None = None) -> str:
         f"<td>{_cell(r.get('rssi'))}</td><td>{rssi_label(r['rssi'])}</td>"
         f"<td>{_cell(r.get('chip_c'))}</td>"
         f"<td>{_cell(r.get('room_c'))}</td><td>{_cell(r.get('room_rh'))}</td>"
-        f"<td>{_stuck_cell(r.get('room_stuck'))}</td>"
+        f"<td>{_i2c_cell(r)}</td>"
         f"<td>{_cell(r.get('awake_ms'))}</td>"
         f"<td>{_reset_cell(r.get('reset_reason'))}</td>"
         f"<td>{len(r.get('log') or []) or ''}</td></tr>"
@@ -241,12 +258,14 @@ def render(rows: list[dict], mac: str | None = None) -> str:
     if (free := last.get("nvs_free")) is not None:
         total = last.get("nvs_total")
         bits.append(f"NVS {free}/{total} 엔트리 남음" if total else f"NVS {free}엔트리 남음")
-    # 복구를 아는 펌웨어가 보낸 보고 중 몇 건이 막힌 버스를 만났나. 분모가 전체가 아니라
-    # 그 펌웨어의 보고 수인 건, 그 전 보고들에는 필드가 아예 없어서다.
-    knows = [r for r in rows if r.get("room_stuck") is not None]
+    # 진단을 보내는 펌웨어의 보고만 모아 실패 이유를 센다. 분모가 전체가 아닌 건 그 전
+    # 보고들에는 필드가 아예 없어서다 — 거기서는 실패를 이유별로 가를 수 없다.
+    knows = [r for r in rows if r.get("room_err")]
     if knows:
-        stuck = sum(1 for r in knows if r["room_stuck"])
-        bits.append(f"버스 막힘 {stuck}/{len(knows)}건")
+        tally = Counter(r["room_err"] for r in knows if r["room_err"] != "ok")
+        bits.append("센서 " + (
+            " ".join(f"{ROOM_ERR_KO.get(k, k)} {n}" for k, n in tally.most_common())
+            + f" / {len(knows)}건" if tally else f"{len(knows)}건 전부 정상"))
 
     return _TEMPLATE.substitute(
         devices=devices,

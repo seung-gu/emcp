@@ -298,7 +298,8 @@ async def weather_report(request: Request) -> JSONResponse:
     for k, clean in (("reset_reason", _int), ("wifi_attempts", _int),
                      ("prev_awake_ms", _int), ("nvs_free", _int), ("nvs_total", _int),
                      ("chip_c", _float), ("room_c", _float), ("room_rh", _float),
-                     ("room_stuck", _bool), ("fw", _tag)):
+                     ("room_err", _tag), ("room_sda", _bool), ("room_scl", _bool),
+                     ("room_ack", _tag), ("room_stuck", _bool), ("fw", _tag)):
         v = clean(report.get(k))
         if v is not None:
             row[k] = v
@@ -308,7 +309,9 @@ async def weather_report(request: Request) -> JSONResponse:
     _append_report(row)
 
     tail = f" +{len(row['log'])} logged" if "log" in row else ""
-    tail += " i2c-unstuck" if row.get("room_stuck") else ""
+    if (err := row.get("room_err")) and err != "ok":
+        tail += f" sht:{err}(sda{int(bool(row.get('room_sda')))}"
+        tail += f" scl{int(bool(row.get('room_scl')))} ack={row.get('room_ack') or '-'})"
     print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm{tail}", flush=True)
 
     body, status = await _weather_body()
