@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -49,52 +50,31 @@ def _hhmm(iso: str) -> str:
     return f"{t.month}/{t.day} {t.hour:02d}:{t.minute:02d}"
 
 
-def _chart(rows: list[dict], key: str, unit: str, lo: int | None = None,
-           hi: int | None = None, guides: tuple = (),
-           width: int = 720, height: int = 160) -> str:
-    """보고 목록을 SVG 꺾은선으로. 축 눈금은 SVG 밖 HTML 로 둔다 (가로로 늘려도 글자가
-    찌그러지지 않게).
+# 그래프로 그리는 값. 그래프마다 자기 값이 있는 보고만 점으로 찍힌다.
+_PLOTTED = ("battery_mv", "rssi", "awake_ms", "chip_c", "room_c", "room_rh", "nvs_used")
 
-    lo/hi 를 주면 축을 고정한다. 신호세기처럼 절대값에 의미가 있는 값은 자동 스케일로
-    그리면 평평한 구간이 요동처럼 보인다.
+
+def _plot_data(rows: list[dict], mac: str | None, nvs_total: int | None) -> str:
+    """그래프가 쓸 값을 열 단위 JSON 으로. 그리는 건 브라우저가 한다 — 구간을 끌어 고르고
+    확대·축소하려면 화면에서 다시 그려야 해서다.
+
+    시각은 epoch 초라 x축이 보고 순번이 아니라 실제 시각이다. 보고가 끊긴 구간은 빈 채로 보인다.
     """
-    # 이 값이 없는 보고는 뺀다. 필드는 나중에 생기기도 하므로 옛 행에는 없고, 한 행만 비어도
-    # 페이지 전체가 못 그려진다. rows 를 먼저 걸러야 아래 x축 라벨이 실제로 그린 점과 맞는다.
-    rows = [r for r in rows if isinstance(r.get(key), (int, float))]
-    values = [r[key] for r in rows]
-    if len(values) < 2:
-        return '<p class="empty">그래프를 그리려면 보고가 2건 이상 필요합니다.</p>'
-    lo = min(values) if lo is None else lo
-    hi = max(values) if hi is None else hi
-    span = hi - lo or 1
-
-    def y(v: float) -> float:
-        v = max(lo, min(hi, v))                      # 축 밖 값은 가장자리에 붙인다
-        return height - (v - lo) / span * (height - 20) - 10
-
-    step = width / (len(values) - 1)
-    pts = " ".join(f"{i * step:.1f},{y(v):.1f}" for i, v in enumerate(values))
-    lines = "".join(
-        f'<line x1="0" x2="{width}" y1="{y(g):.1f}" y2="{y(g):.1f}" stroke="currentColor"'
-        f' stroke-width="1" stroke-dasharray="3 5" opacity=".25"/>'
-        for g, _ in guides
-    )
-    # 눈금 글자는 SVG 밖에 둔다. preserveAspectRatio="none" 이라 안에 넣으면 가로로 늘어난다.
-    bands = "".join(
-        f'<span class="band" style="top:{y(g) / height * 100:.1f}%">{name} {g}</span>'
-        for g, name in guides
-    )
-    mid = rows[len(rows) // 2]
-    return (
-        f'<div class="chart">'
-        f'<svg viewBox="0 0 {width} {height}" preserveAspectRatio="none" role="img">'
-        f'{lines}<polyline points="{pts}" fill="none" stroke="currentColor" stroke-width="2"/>'
-        f"</svg>"
-        f'<span class="ymax">{hi} {unit}</span><span class="ymin">{lo} {unit}</span>{bands}'
-        f"</div>"
-        f'<div class="xaxis"><span>{_hhmm(rows[0]["at"])}</span>'
-        f'<span>{_hhmm(mid["at"])}</span><span>{_hhmm(rows[-1]["at"])}</span></div>'
-    )
+    data = {
+        "t": [int(datetime.fromisoformat(r["at"]).timestamp()) for r in rows],
+        "fw": [r.get("fw") for r in rows],
+        "series": {k: [r.get(k) for r in rows] for k in _PLOTTED},
+        # 신호세기처럼 절대값에 의미가 있는 값은 축을 고정한다. 자동으로 맞추면 평평한 구간이
+        # 요동처럼 보인다.
+        "fixed": {"rssi": [-100, -40]},
+        "guides": {"rssi": [[g, name] for g, name in RSSI_BANDS]},
+    }
+    if not mac:
+        data["mac"] = [r.get("mac") for r in rows]
+    if nvs_total:
+        data["fixed"]["nvs_used"] = [0, nvs_total]
+    # 값 안에 </script> 가 있으면 태그가 거기서 닫힌다.
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
 
 
 def _cell(v) -> str:
@@ -271,14 +251,8 @@ def render(rows: list[dict], mac: str | None = None) -> str:
         devices=devices,
         mac_th="" if mac else "<th>기기</th>",
         sub=" · ".join(bits),
-        battery=_chart(rows, "battery_mv", "mV"),
-        rssi=_chart(rows, "rssi", "dBm", lo=-100, hi=-40, guides=RSSI_BANDS),
+        data=_plot_data(rows, mac, nvs_total),
         rssi_note=f"0 에 가까울수록 세다. 맨 아래 점선보다 낮으면 {_WEAKEST}.",
-        awake=_chart(rows, "awake_ms", "ms"),
-        chip=_chart(rows, "chip_c", "°C"),
-        room_c=_chart(rows, "room_c", "°C"),
-        room_rh=_chart(rows, "room_rh", "%"),
-        nvs=_chart(rows, "nvs_used", "엔트리", lo=0, hi=nvs_total),
         table=table,
         logs=_logs(recent),
     )
