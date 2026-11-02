@@ -1,4 +1,4 @@
-app = "emcp-led"
+app = "emcp"
 primary_region = "fra"
 
 [build]

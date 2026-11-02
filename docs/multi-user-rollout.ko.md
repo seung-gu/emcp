@@ -113,7 +113,7 @@ VALUES ('4J7K2P', 'user_01ABC', now() + interval '24 hours');
 **기술:** HTTPS POST, JSON. 지금 쓰는 보고와 같습니다.
 
 ```http
-POST https://emcp-led.fly.dev/weather
+POST https://emcp.fly.dev/weather
 Content-Type: application/json
 
 {
