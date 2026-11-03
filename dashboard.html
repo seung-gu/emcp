@@ -66,12 +66,28 @@
   .logs ol { margin: 4px 0 0; padding-left: 22px; }
   .logs li { padding: 1px 0; }
   .dim { opacity: .55; margin-left: 8px; font-variant-numeric: tabular-nums; }
+  /* 내 보드 칸. 위쪽 표와 달리 숫자 칸이 없어서 모두 좌정렬한다. */
+  table.boards th, table.boards td { text-align: left; }
+  table.boards form { margin: 0; }
+  table.boards .dim { margin-left: 0; }
+  .notice { margin: 0 0 16px; padding: 8px 12px; font-size: .875rem;
+            border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
+  .claim { display: flex; gap: 6px; margin: 12px 0 0; }
+  .claim input { font: inherit; font-size: .9rem; width: 9em; padding: 3px 10px; color: inherit;
+                 background: none; border: 1px solid rgba(128,128,128,.45); border-radius: 6px;
+                 letter-spacing: .08em; text-transform: uppercase; }
+  .boards button, .claim button { font: inherit; font-size: .78rem; color: inherit; background: none;
+                                  padding: 3px 10px; border: 1px solid rgba(128,128,128,.35);
+                                  border-radius: 999px; cursor: pointer; }
+  .boards button:hover, .claim button:hover { border-color: currentColor; }
+  .waiting { margin: 8px 0 0; padding-left: 22px; font-size: .85rem; }
 </style>
 </head>
 <body>
 <h1>보드 상태</h1>
 <p class="sub">$sub</p>
 $devices
+$boards
 
 <div class="toolbar" id="toolbar">
   <span class="range" id="range"></span>

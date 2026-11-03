@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import datetime, timezone
 
@@ -27,9 +28,15 @@ WEATHER_FIELDS = ("city", "lat", "lon", "out_temp_c", "out_humidity", "out_temp_
 # 온습도 센서 진단. 보고마다 오지만 문제를 볼 때만 쓰므로 sensor_logs 에 따로 둔다.
 SENSOR_FIELDS = {"room_err": str, "room_sda": bool, "room_scl": bool, "room_ack": str,
                  "room_stuck": bool}
-# 날씨를 못 받았던 때의 기록 한 건에 실리는 값. 모두 정수다. kind 는 server.py 가 따로 거른다.
-LOG_FIELDS = ("wifi_attempts", "reset_reason", "battery_mv", "wifi_ms", "rssi", "wifi_status",
-              "http_code")
+# 날씨를 못 받았던 때의 기록 한 건에 실리는 값과 그 타입. kind 는 server.py 가 따로 거른다.
+# 온습도(chip_c, room_c, room_rh)는 4단계 펌웨어부터 실려 온다.
+LOG_FIELDS = {
+    "wifi_attempts": int, "reset_reason": int, "battery_mv": int, "wifi_ms": int, "rssi": int,
+    "wifi_status": int, "http_code": int, "chip_c": float, "room_c": float, "room_rh": float,
+}
+
+# 등록 코드가 살아 있는 시간. 보드가 1시간 동안 5분마다 물어보는 것과 맞춘다.
+CLAIM_MINUTES = 60
 
 # 순서대로 한 번씩만 실행된다. 이미 적용된 줄은 고치지 말고, 바꿀 게 있으면 끝에 새 줄을 붙인다.
 MIGRATIONS = [
@@ -144,6 +151,21 @@ MIGRATIONS = [
     "CREATE INDEX device_access_user ON device_access (user_id)",
     # 3단계: 보드마다 날씨 위치. 비어 있으면 서버 기본 위치(뮌헨)로 조회한다.
     "ALTER TABLE devices ADD COLUMN city TEXT, ADD COLUMN lat DOUBLE PRECISION, ADD COLUMN lon DOUBLE PRECISION",
+    # 4단계: 보드 토큰의 SHA-256 해시. 비어 있으면 아직 토큰이 없거나 주인이 등록을 해제한 보드다.
+    # MAC 중복 금지(devices_mac_key)는 옛 앱이 토큰 없는 보고를 MAC 으로 찾는 동안 남겨 둔다.
+    "ALTER TABLE devices ADD COLUMN token_hash TEXT UNIQUE",
+    # 등록 코드 한 줄에 사람(user_id)과 보드(token_hash, mac)가 각자 자기 몫을 적는다. 둘 다 차면 연결한다.
+    """
+    CREATE TABLE claim_codes (
+        code       TEXT PRIMARY KEY,
+        user_id    TEXT,
+        token_hash TEXT,
+        mac        TEXT,
+        expires_at TIMESTAMPTZ NOT NULL
+    )
+    """,
+    "ALTER TABLE wake_logs ADD COLUMN chip_c DOUBLE PRECISION, ADD COLUMN room_c DOUBLE PRECISION,"
+    " ADD COLUMN room_rh DOUBLE PRECISION",
 ]
 
 _migrated = False
@@ -179,7 +201,8 @@ def _migrate(conn: psycopg.Connection) -> None:
 
 def add_reports(rows: list[dict]) -> dict:
     """보고를 한 트랜잭션으로 넣는다. rows 는 server.py 가 버퍼에 쓰는 모양이다
-    (received_at, mac, 측정값, 날씨, room_*, log, raw).
+    (received_at, device_id 또는 mac, 측정값, 날씨, room_*, log, raw). 토큰으로 온 보고는 서버가
+    보드 번호(device_id)를 적어 두고, 토큰 없는 옛 보고는 MAC 으로 보드를 찾는다.
 
     같은 보드에 같은 받은 시각의 보고가 이미 있으면 건너뛰므로, 같은 묶음을 다시 넣어도 된다.
     넣은 보고 수, 건너뛴 보고 수, 넣은 실패 기록 수를 돌려준다.
@@ -187,16 +210,18 @@ def add_reports(rows: list[dict]) -> dict:
     rows = sorted(rows, key=lambda r: r["received_at"])
     report_cols = ["device_id", "received_at", *REPORT_FIELDS, *WEATHER_FIELDS]
     with _connect() as conn, conn.transaction():
-        devices = _device_ids(conn, {r.get("mac") for r in rows})
-        sent_before = _last_sent_logs(conn, list(devices.values()))
+        by_mac = _device_ids(conn, {r.get("mac") for r in rows if "device_id" not in r})
+        # rows 와 같은 순서로 각 보고의 보드 번호
+        row_devices = [r["device_id"] if "device_id" in r else by_mac[r.get("mac")] for r in rows]
+        sent_before = _last_sent_logs(conn, list(set(row_devices)))
 
         with conn.cursor() as cur:
             cur.executemany(
                 f"INSERT INTO reports ({', '.join(report_cols)})"
                 f" VALUES ({', '.join(['%s'] * len(report_cols))})"
                 " ON CONFLICT (device_id, received_at) DO NOTHING RETURNING id",
-                [(devices[r.get("mac")], datetime.fromisoformat(r["received_at"]),
-                  *(r.get(c) for c in report_cols[2:])) for r in rows],
+                [(device, datetime.fromisoformat(r["received_at"]),
+                  *(r.get(c) for c in report_cols[2:])) for r, device in zip(rows, row_devices)],
                 returning=True,
             )
             ids = []
@@ -207,8 +232,7 @@ def add_reports(rows: list[dict]) -> dict:
                     break
 
         raws, sensors, wakes = [], [], []
-        for r, report_id in zip(rows, ids):
-            device = devices[r.get("mac")]
+        for r, device, report_id in zip(rows, row_devices, ids):
             entries = _new_entries(r, sent_before.get(device, []))
             sent_before[device] = _sent_log(r)
             if report_id is None:
@@ -295,10 +319,11 @@ _OWNED_BY = "id IN (SELECT device_id FROM device_access WHERE user_id = %s AND r
 
 
 def list_devices(user_id: str) -> list[dict]:
-    """이 사람이 볼 수 있는 보드의 번호, 이름, MAC, 위치, 역할."""
+    """이 사람이 볼 수 있는 보드의 번호, 이름, MAC, 위치, 역할, 토큰으로 등록됐는지(registered)."""
     with _connect() as conn:
         return conn.execute(
-            "SELECT d.id, d.name, d.mac, d.city, d.lat, d.lon, a.role"
+            "SELECT d.id, d.name, d.mac, d.city, d.lat, d.lon, a.role,"
+            " d.token_hash IS NOT NULL AS registered"
             " FROM devices d JOIN device_access a ON a.device_id = d.id"
             " WHERE a.user_id = %s ORDER BY d.id",
             (user_id,),
@@ -322,12 +347,100 @@ def rename_device(user_id: str, device_id: int, name: str) -> bool:
         return cur.rowcount == 1
 
 
-def read_locations() -> dict[str | None, dict]:
-    """위치를 정해 둔 보드의 MAC 별 위치. MAC 을 안 보내는 보드는 None 키다. 서버가 메모리에 사본으로
-    들고 있다가 보고에 답할 때 쓴다."""
+def read_devices() -> list[dict]:
+    """모든 보드의 번호, MAC, 토큰 해시, 날씨 위치. 서버가 메모리에 사본으로 들고 있다가 보고에 답할 때
+    쓴다. 보드가 몇 대 안 돼서 통째로 읽는다."""
     with _connect() as conn:
-        rows = conn.execute("SELECT mac, city, lat, lon FROM devices WHERE city IS NOT NULL").fetchall()
-    return {r["mac"]: {"name": r["city"], "lat": r["lat"], "lon": r["lon"]} for r in rows}
+        return conn.execute("SELECT id, mac, token_hash, city, lat, lon FROM devices").fetchall()
+
+
+def hash_token(token: str) -> str:
+    """보드 토큰은 원본을 저장하지 않고 이 해시로만 찾는다."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+# --- 보드 등록 (4단계, docs/multi-user-rollout.ko.md) ---
+# 사람과 보드가 claim_codes 의 같은 줄에 각자 자기 몫을 적고, 둘 다 차면 연결한다. 누가 먼저 오든 같다.
+# 두 함수 모두 ("registered", 보드 번호), ("pending", None), ("taken", None), ("mac_in_use", None) 중
+# 하나를 돌려준다.
+
+def board_check_in(token_hash: str, mac: str, code: str) -> tuple[str, int | None]:
+    """보드가 등록됐는지 묻는다. 이미 등록된 토큰이면 바로 그 보드 번호를 돌려준다. taken 은 다른 보드가
+    같은 코드를 이미 쓰고 있다는 뜻이라 보드가 코드를 새로 만든다."""
+    with _connect() as conn, conn.transaction():
+        if (row := conn.execute("SELECT id FROM devices WHERE token_hash = %s", (token_hash,)).fetchone()):
+            return "registered", row["id"]
+        claim = _claim_row(conn, code)
+        if claim["token_hash"] not in (None, token_hash):
+            return "taken", None
+        conn.execute("UPDATE claim_codes SET token_hash = %s, mac = %s WHERE code = %s", (token_hash, mac, code))
+        if claim["user_id"]:
+            return _link(conn, code, claim["user_id"], token_hash, mac)
+        return "pending", None
+
+
+def enter_code(user_id: str, code: str) -> tuple[str, int | None]:
+    """사람이 대시보드나 Claude 에 보드 디스플레이의 코드를 입력했다. taken 은 다른 계정이 같은 코드를 이미
+    입력했다는 뜻이다."""
+    with _connect() as conn, conn.transaction():
+        claim = _claim_row(conn, code)
+        if claim["user_id"] not in (None, user_id):
+            return "taken", None
+        conn.execute("UPDATE claim_codes SET user_id = %s WHERE code = %s", (user_id, code))
+        if claim["token_hash"]:
+            return _link(conn, code, user_id, claim["token_hash"], claim["mac"])
+        return "pending", None
+
+
+def _claim_row(conn: psycopg.Connection, code: str) -> dict:
+    """코드 줄을 잠그고 가져온다. 없으면 만든다. 만료된 줄은 그 전에 지운다."""
+    conn.execute("DELETE FROM claim_codes WHERE expires_at <= now()")
+    conn.execute("INSERT INTO claim_codes (code, expires_at) VALUES (%s, now() + make_interval(mins => %s))"
+                 " ON CONFLICT (code) DO NOTHING", (code, CLAIM_MINUTES))
+    return conn.execute("SELECT * FROM claim_codes WHERE code = %s FOR UPDATE", (code,)).fetchone()
+
+
+def _link(conn: psycopg.Connection, code: str, user_id: str, token_hash: str, mac: str) -> tuple[str, int | None]:
+    """코드 줄의 두 쪽이 다 찼으니 보드를 계정에 연결하고 줄을 지운다. 같은 계정이 같은 MAC 의 보드를 다시
+    등록하면 새 행을 만들지 않고 그 행의 토큰만 바꿔서 기록을 잇는다.
+
+    MAC 중복 금지가 남아 있는 동안은 다른 계정에 있던 MAC 을 새 행으로 만들 수 없어 mac_in_use 를 돌려준다.
+    그 줄은 지우지 않고 두어 1시간 뒤 저절로 사라지게 한다. 옛 앱을 지우면서 제약을 풀면 없어지는 경우다."""
+    row = conn.execute(
+        "SELECT d.id FROM devices d JOIN device_access a ON a.device_id = d.id"
+        " WHERE d.mac = %s AND a.user_id = %s AND a.role = 'owner'",
+        (mac, user_id),
+    ).fetchone()
+    if row:
+        device_id = row["id"]
+        conn.execute("UPDATE devices SET token_hash = %s WHERE id = %s", (token_hash, device_id))
+    elif conn.execute("SELECT 1 FROM devices WHERE mac = %s", (mac,)).fetchone():
+        return "mac_in_use", None
+    else:
+        device_id = conn.execute("INSERT INTO devices (mac, token_hash) VALUES (%s, %s) RETURNING id",
+                                 (mac, token_hash)).fetchone()["id"]
+        conn.execute("INSERT INTO device_access (device_id, user_id, role) VALUES (%s, %s, 'owner')",
+                     (device_id, user_id))
+    conn.execute("DELETE FROM claim_codes WHERE code = %s", (code,))
+    return "registered", device_id
+
+
+def pending_codes(user_id: str) -> list[dict]:
+    """이 사람이 입력했지만 아직 보드가 물어오지 않은 코드와 만료 시각."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT code, expires_at FROM claim_codes WHERE user_id = %s AND expires_at > now()"
+            " ORDER BY expires_at", (user_id,),
+        ).fetchall()
+
+
+def release_device(user_id: str, device_id: int) -> bool:
+    """주인이면 보드의 토큰을 지운다. 보드는 다음 보고에서 거절당하면 토큰을 지우고 새 코드를 띄운다. 지난
+    기록과 주인 정보는 그대로라 전 주인은 계속 볼 수 있다."""
+    with _connect() as conn:
+        cur = conn.execute(f"UPDATE devices SET token_hash = NULL WHERE id = %s AND token_hash IS NOT NULL"
+                           f" AND {_OWNED_BY}", (device_id, user_id))
+        return cur.rowcount == 1
 
 
 def read_reports(user_id: str) -> list[dict]:

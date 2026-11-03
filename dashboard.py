@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import json
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
 
@@ -219,7 +219,50 @@ def _device_links(rows: list[dict], mac: str | None) -> str:
     return f'<p class="devices">{"".join(links)}</p>'
 
 
-def render(rows: list[dict], mac: str | None = None) -> str:
+def _boards_section(boards: list[dict], pending: list[dict], notice: str | None) -> str:
+    """내 보드 목록과 등록 해제 버튼, 등록 코드 입력 칸, 입력해 두고 보드를 기다리는 코드. 보드 이름과
+    도시는 사람이 정한 글자라 이스케이프한다. 코드는 server.py 가 정한 글자만 통과한다."""
+    lines = []
+    for b in boards:
+        where = html.escape(b["city"]) if b["city"] else '<span class="dim">기본값</span>'
+        if not b["registered"]:
+            state, action = '<span class="dim">등록 안 됨</span>', ""
+        elif b["role"] != "owner":
+            state, action = "등록됨 (공유받음)", ""
+        else:
+            state = "등록됨"
+            action = (
+                '<form method="post" action="/dashboard/release" onsubmit="return confirm('
+                "'이 보드의 등록을 해제할까요? 보드는 다음 보고 때 새 코드를 띄우고, 지난 기록은 계속 볼 수 있습니다.')\">"
+                f'<input type="hidden" name="device_id" value="{b["id"]}">'
+                '<button type="submit">등록 해제</button></form>'
+            )
+        lines.append(f"<tr><td>{_board(b['name'], b['mac']) or 'MAC 없음'}</td><td>{where}</td>"
+                     f"<td>{state}</td><td>{action}</td></tr>")
+    table = (
+        '<table class="boards"><tr><th>보드</th><th>날씨 위치</th><th>상태</th><th></th></tr>'
+        + "".join(lines) + "</table>"
+    ) if lines else '<p class="empty">아직 등록한 보드가 없습니다.</p>'
+
+    now = datetime.now(timezone.utc)
+    waiting = "".join(
+        f'<li><b>{p["code"]}</b> 보드를 기다리는 중'
+        f'<span class="dim">{max(1, int((p["expires_at"] - now).total_seconds() // 60))}분 남음</span></li>'
+        for p in pending
+    )
+    return (
+        (f'<p class="notice">{notice}</p>' if notice else "")
+        + "<h2>내 보드</h2>" + table
+        + '<form class="claim" method="post" action="/dashboard/claim">'
+          '<input name="code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false"'
+          ' placeholder="4J7K2P" aria-label="등록 코드"><button type="submit">보드 등록</button></form>'
+        + '<p class="note">보드 디스플레이에 나온 6자리 등록 코드를 넣고, 보드의 RESET 버튼을 한 번 누르세요.</p>'
+        + (f'<ul class="waiting">{waiting}</ul>' if waiting else "")
+    )
+
+
+def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pending: list[dict] = (),
+           notice: str | None = None) -> str:
     # 보드별로 나눠야 하는 처리(_attach_awake)는 전체를 대상으로 한 뒤에 거른다.
     _drop_bad_battery(rows)
     _attach_awake(rows)
@@ -261,6 +304,7 @@ def render(rows: list[dict], mac: str | None = None) -> str:
             + f" / {len(knows)}건" if tally else f"{len(knows)}건 전부 정상"))
 
     return _TEMPLATE.substitute(
+        boards=_boards_section(list(boards), list(pending), notice),
         devices=devices,
         mac_th="" if mac else "<th>보드</th>",
         sub=" · ".join(bits),

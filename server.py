@@ -1,14 +1,19 @@
 """emcp: e-ink 날씨 보드 서버.
 
 1. MCP (Streamable HTTP, /mcp). 로그인한 사람만 쓰고, 도구는 부른 사람의 보드만 다룬다.
+   - `register_device` 로 보드 디스플레이의 등록 코드를 입력해 보드를 등록한다.
    - `get_weather_location` 으로 내 보드와 각 보드의 날씨 위치를 본다.
    - `search_location` 으로 지명의 좌표 후보를 찾고, 고른 좌표를 `set_weather_location` 에 넘겨
      보드 하나의 위치를 바꾼다. `rename_device` 로 보드에 이름을 붙인다.
 
-2. 보드용 HTTP
-   - 보드는 깨어날 때마다 `POST /weather` 로 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를 받는다.
+2. 보드용 HTTP (`POST /weather`)
+   - 등록 전 보드는 토큰과 등록 코드만 보내 등록됐는지 묻는다.
+   - 등록된 보드는 깨어날 때마다 토큰을 실어 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를 받는다.
 
-3. 대시보드 (/dashboard). 로그인한 사람이 볼 수 있는 보드의 보고를 그린다.
+3. 대시보드 (/dashboard). 로그인한 사람이 볼 수 있는 보드의 보고를 그리고, 보드를 등록하거나 등록을
+   해제한다.
+
+보드 등록 설계는 docs/multi-user-rollout.ko.md 에 있다.
 
 보드와 보고는 Neon 에 둔다 (db.py). 공식 MCP Python SDK(`mcp` 패키지)의 FastMCP 를 사용한다.
 날씨/지오코딩은 API 키가 필요 없는 open-meteo 를 쓴다.
@@ -19,6 +24,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -35,21 +41,33 @@ import auth
 import dashboard
 import db
 
-# 날씨 위치는 보드마다 devices 에 있다. 보고에 DB 를 기다리지 않고 답하려고 MAC 별 사본을 메모리에 둔다.
-# 사본은 서버가 뜰 때, 보고를 Neon 으로 옮길 때(DB 가 어차피 깨어 있을 때), 위치를 바꿀 때 다시 읽는다.
-# 그래서 다른 앱(emcp, emcp-led)에서 바꾼 위치는 이 앱이 다음에 보고를 옮길 때 들어온다.
+# 보드 사본. 보고에 DB 를 기다리지 않고 답하려고 devices 를 통째로 메모리에 둔다. 토큰으로 온 보고는
+# 토큰 해시로, 토큰 없는 옛 보고는 MAC 으로 보드를 찾는다. 사본은 서버가 뜰 때, 보고를 Neon 으로 옮길 때
+# (DB 가 어차피 깨어 있을 때), 위치를 바꾸거나 보드를 등록·해제할 때 다시 읽는다. 그래서 다른 앱(emcp,
+# emcp-led)에서 바꾼 위치는 이 앱이 다음에 보고를 옮길 때 들어온다.
 # 위치를 정하지 않은 보드와 아직 DB 에 없는 보드는 기본 위치로 조회한다.
 _DEFAULT_LOCATION = {"name": "뮌헨", "lat": 48.14, "lon": 11.58}
-_locations: dict[str | None, dict] = {}
+_by_token: dict[str, dict] = {}
+_by_mac: dict[str | None, dict] = {}
 
 
-def _load_locations() -> None:
-    """DB 에서 위치 사본을 다시 읽는다. 실패하면 있던 사본을 그대로 쓴다."""
-    global _locations
+def _load_devices() -> bool:
+    """DB 에서 보드 사본을 다시 읽는다. 실패하면 있던 사본을 그대로 두고 False 를 돌려준다."""
+    global _by_token, _by_mac
     try:
-        _locations = db.read_locations()
+        rows = db.read_devices()
     except Exception as e:
-        print(f"loading locations failed, keeping the old copy: {e!r}", flush=True)
+        print(f"loading devices failed, keeping the old copy: {e!r}", flush=True)
+        return False
+    _by_token = {r["token_hash"]: r for r in rows if r["token_hash"]}
+    _by_mac = {r["mac"]: r for r in rows}   # MAC 중복 금지가 남아 있어 MAC 하나에 한 행이다
+    return True
+
+
+def _location(device: dict | None) -> dict:
+    if device and device["city"]:
+        return {"name": device["city"], "lat": device["lat"], "lon": device["lon"]}
+    return _DEFAULT_LOCATION
 
 # 기기 상태 보고. 받으면 볼륨 위 파일에 한 줄씩 쌓고, 한 시간에 한 번 Neon 으로 옮긴다.
 # 보고마다 DB 에 쓰면 30분마다 잠든 DB 를 깨워서 보드 몇 대만으로 무료 한도를 넘는다.
@@ -87,7 +105,7 @@ def _flush_sealed() -> None:
                 return
             os.remove(path)
             print(f"flushed {path}: {result}", flush=True)
-    _load_locations()
+    _load_devices()
 
 
 def _flush_if_due() -> BackgroundTask | None:
@@ -105,10 +123,58 @@ def _flush_if_due() -> BackgroundTask | None:
 # 화이트리스트로 거른다 — 기기가 지어낸 문자열은 페이지에 닿지 못한다.
 _LOG_KINDS = {"wifi", "http", "portal-new", "portal-lost", "portal-timeout", "full"}
 
-# 펌웨어가 DB 와 다른 이름으로 보내는 항목. 4단계에서 펌웨어를 고치면 지운다.
+# 옛 펌웨어가 DB 와 다른 이름으로 보내는 항목. 4단계 펌웨어는 새 이름으로 보내지만, 옛 펌웨어 보드가 남아
+# 있는 동안 둘 다 받는다.
 _BOARD_NAMES = {"fw_version": "fw"}
 # 보드가 4단계부터 싣는 비밀값. 원본(report_raw)에도 남기지 않는다.
 _SECRET_KEYS = ("token", "claim_code")
+
+# 옛 펌웨어 보드는 토큰 없이 MAC 만 보낸다. 세 보드를 다시 플래싱할 때까지, 그 보드들이 보고하는 emcp-led
+# 에만 ACCEPT_TOKENLESS=1 을 준다. 옛 펌웨어는 거절당하면 5분마다 다시 시도해서 배터리가 빨리 닳는다.
+_ACCEPT_TOKENLESS = os.getenv("ACCEPT_TOKENLESS") == "1"
+
+# 보드가 만드는 값의 모양. 펌웨어와 맞춘 약속이다. 토큰은 32바이트 난수를 소문자 16진수로 쓴 64자,
+# 등록 코드는 헷갈리는 0, 1, I, O 를 뺀 32글자 중 6자리다.
+_TOKEN_RE = re.compile(r"[0-9a-f]{64}")
+_CODE_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+# 요청 횟수 제한 (1시간에). 보드 하나는 등록 전 1시간에 12번 묻는다.
+_CHECK_INS_PER_IP = 30   # 등록 확인. 한 집에서 두 대를 같이 등록해도 넉넉하게
+_LOOKUPS_PER_IP = 12     # 사본에 없는 토큰 때문에 DB 를 다시 읽는 횟수
+_CODES_PER_USER = 10     # 사람이 코드를 입력하는 횟수. 코드를 찍어서 맞히지 못하게
+_hits: dict[str, list[float]] = {}
+
+
+def _allowed(key: str, limit: int, per: int = 3600) -> bool:
+    """key 로 per 초 안에 limit 번까지 허용한다. 메모리에만 세므로 재시작하면 처음부터 센다. 키가 지워지지
+    않고 쌓이지만 보드와 사람 수가 적어서 그대로 둔다. 많아지면 오래된 키를 주기적으로 비운다."""
+    now = time.monotonic()
+    recent = [t for t in _hits.get(key, ()) if now - t < per]
+    allowed = len(recent) < limit
+    if allowed:
+        recent.append(now)
+    _hits[key] = recent
+    return allowed
+
+
+def _token(v) -> str | None:
+    return v if isinstance(v, str) and _TOKEN_RE.fullmatch(v) else None
+
+
+def _code(v) -> str | None:
+    """등록 코드. 사람이 넣은 대소문자, 공백, 하이픈은 무시한다."""
+    if not isinstance(v, str):
+        return None
+    v = "".join(v.split()).replace("-", "").upper()
+    return v if len(v) == 6 and all(c in _CODE_CHARS for c in v) else None
+
+
+def _field(report: dict, name: str):
+    """보고에서 name 항목. 없으면 옛 펌웨어가 쓰던 이름으로 찾는다."""
+    v = report.get(name)
+    if v is None and name in _BOARD_NAMES:
+        v = report.get(_BOARD_NAMES[name])
+    return v
 
 
 def _int(v) -> int | None:
@@ -150,8 +216,8 @@ def _clean_entry(e: dict) -> dict:
     그냥 빠진다 — 자리를 채우지 않는다."""
     kind = e.get("kind")
     out = {"kind": kind if kind in _LOG_KINDS else "unknown"}
-    for k in db.LOG_FIELDS:
-        v = _int(e.get(k))
+    for k, kind in db.LOG_FIELDS.items():
+        v = _CLEAN[kind](e.get(k))
         if v is not None:
             out[k] = v
     return out
@@ -183,6 +249,44 @@ _COOKIE = {"httponly": True, "secure": auth.PUBLIC_URL.startswith("https://"), "
 def _caller() -> str:
     """도구를 부른 사람의 WorkOS 사용자 ID. /mcp 에는 토큰을 확인한 요청만 들어온다."""
     return get_access_token().subject
+
+
+# 코드를 입력한 결과. 대시보드 안내와 Claude 답에 같이 쓴다.
+_ENTER_RESULTS = {
+    "registered": "보드를 등록했습니다.",
+    "pending": "코드를 받았습니다. 보드의 RESET 버튼을 한 번 누르면 등록됩니다.",
+    "taken": "이미 다른 계정이 입력한 코드입니다. 보드 디스플레이의 코드를 다시 확인해 주세요.",
+    "mac_in_use": "이 보드는 다른 계정에 등록된 적이 있어서 지금은 등록할 수 없습니다.",
+    "invalid": "등록 코드는 보드 디스플레이에 나온 6자리입니다.",
+    "limited": "코드를 너무 많이 입력했습니다. 1시간 뒤에 다시 해 주세요.",
+    "error": "서버가 잠시 DB에 닿지 못했습니다. 잠시 뒤에 다시 해 주세요.",
+}
+
+
+async def _enter_code(user: str, raw) -> str:
+    """대시보드와 Claude 가 같이 쓰는 코드 입력. _ENTER_RESULTS 의 키를 돌려준다."""
+    if not (code := _code(raw)):
+        return "invalid"
+    if not _allowed(f"code:{user}", _CODES_PER_USER):
+        return "limited"
+    try:
+        result, _ = await run_in_threadpool(db.enter_code, user, code)
+    except Exception as e:
+        print(f"entering a code failed: {e!r}", flush=True)
+        return "error"
+    if result == "registered":
+        await run_in_threadpool(_load_devices)
+    return result
+
+
+@mcp.tool()
+async def register_device(code: str) -> str:
+    """보드 디스플레이에 뜬 6자리 등록 코드로 보드를 내 계정에 등록한다.
+
+    Args:
+        code: 보드 디스플레이의 등록 코드 (예: '4J7K2P').
+    """
+    return _ENTER_RESULTS[await _enter_code(_caller(), code)]
 
 
 @mcp.tool()
@@ -220,7 +324,7 @@ async def set_weather_location(device_id: int, name: str, latitude: float, longi
         return "도시 이름은 1~40자여야 한다"
     if not await run_in_threadpool(db.set_location, _caller(), device_id, city, latitude, longitude):
         return f"{device_id}번 보드의 주인이 아니거나 그런 보드가 없다"
-    await run_in_threadpool(_load_locations)
+    await run_in_threadpool(_load_devices)
     return f"{device_id}번 보드의 날씨 위치를 {city} ({latitude}, {longitude}) 로 설정했다"
 
 
@@ -335,7 +439,10 @@ async def _weather_body(loc: dict) -> tuple[dict, int, dict]:
                   "pop": daily["precipitation_probability_max"][0]}
         return ({"city": loc["name"], "temp_c": temp, "cond": desc, "wind_kmh": wind,
                  "humidity": humid, "temp_max_c": tmax, "temp_min_c": tmin, "pop": pop,
-                 "stamp": stamp}, 200, record)
+                 "stamp": stamp,
+                 # 4단계 펌웨어가 읽는 새 이름. 옛 펌웨어 보드가 남아 있는 동안 옛 이름과 같이 보낸다
+                 "out_temp_c": temp, "out_humidity": humid, "out_temp_max_c": tmax,
+                 "out_temp_min_c": tmin}, 200, record)
     except Exception:
         # stamp 도 뺀다: 현지 시각 오프셋이 실패한 그 응답 안에 들어 있어서 서버도 모른다.
         return ({"city": loc["name"]}, 500, {})
@@ -343,25 +450,54 @@ async def _weather_body(loc: dict) -> tuple[dict, int, dict]:
 
 @mcp.custom_route("/weather", methods=["POST"])
 async def weather_report(request: Request) -> JSONResponse:
-    """기기가 wake 마다 부르는 경로. 상태 보고를 받고 날씨를 응답한다.
+    """보드가 부르는 경로. 등록 전 보드의 등록 확인과 등록된 보드의 상태 보고를 받고 날씨를 응답한다.
 
-    시각은 기기가 모르므로 서버 시계로 찍는다. 토큰 검증은 4단계(보드 등록)에서 들어간다.
+    보드는 401 과 {"registered": false} 를 받을 때만 토큰을 지우고 새 코드를 띄운다. 그래서 서버가 보드를
+    확인하지 못한 경우(DB 장애, 횟수 제한)에는 401 이 아닌 503, 429 로 답한다.
     """
     try:
         report = await request.json()
+        if not isinstance(report, dict):
+            raise ValueError("not an object")
+    except Exception:
+        return JSONResponse({"error": "bad body"}, status_code=400)
+    ip = request.client.host if request.client else "unknown"
+    mac = _tag(report.get("mac"))
+    if "claim_code" in report:
+        return await _check_in(report, mac, ip)
+
+    if "token" in report:
+        device = _by_token.get(token_hash := db.hash_token(str(report["token"])))
+        if device is None:
+            # 사본에 없으면 DB 를 한 번 다시 읽는다. 모르는 토큰을 쏟아부어 DB 를 계속 깨우지 못하게 IP 마다
+            # 횟수를 묶는다.
+            if not _allowed(f"lookup:{ip}", _LOOKUPS_PER_IP):
+                return JSONResponse({"error": "too many requests"}, status_code=429)
+            if not await run_in_threadpool(_load_devices):
+                return JSONResponse({"error": "try again later"}, status_code=503)
+            device = _by_token.get(token_hash)
+        if device is None:
+            return JSONResponse({"registered": False}, status_code=401)
+    elif _ACCEPT_TOKENLESS:
+        device = _by_mac.get(mac)   # MAC 을 안 보내는 옛 보드는 None 키로 찾는다 (devices 의 MAC 빈 행)
+    else:
+        return JSONResponse({"registered": False}, status_code=401)
+
+    try:
         battery_mv, wifi_ms, rssi = (int(report[k]) for k in ("battery_mv", "wifi_ms", "rssi"))
     except Exception:
         return JSONResponse({"error": "bad body"}, status_code=400)
 
     row = {"received_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
-    # 어느 기기가 보냈나. 이게 없으면 여러 대가 한 줄로 섞여서, 앞 행과 비교하는 것들이
-    # (배터리 추세, wake 시간) 서로 다른 기기를 비교하게 된다.
-    if (mac := _tag(report.get("mac"))):
+    # 토큰으로 온 보고는 보드 번호를 적어 두고, 옛 보고는 Neon 으로 옮길 때 MAC 으로 보드를 찾는다.
+    if "token" in report:
+        row["device_id"] = device["id"]
+    if mac:
         row["mac"] = mac
-    # 나머지는 있으면 싣고 없으면 만다. 기기 펌웨어와 이 서버는 따로 배포되므로 한쪽이
+    # 나머지는 있으면 싣고 없으면 만다. 보드 펌웨어와 이 서버는 따로 배포되므로 한쪽이
     # 아직 모르는 필드가 있어도 보고가 깨지면 안 된다. 항목 목록은 db.py 한 곳에 있다.
     for name, kind in {**db.REPORT_FIELDS, **db.SENSOR_FIELDS}.items():
-        v = _CLEAN[kind](report.get(_BOARD_NAMES.get(name, name)))
+        v = _CLEAN[kind](_field(report, name))
         if v is not None:
             row[name] = v
     log = report.get("log")
@@ -370,8 +506,7 @@ async def weather_report(request: Request) -> JSONResponse:
     # 받은 그대로도 남긴다. 서버가 아직 모르는 항목을 나중에 칸으로 뽑을 때 옛 보고에서도 채우려고.
     row["raw"] = {k: v for k, v in report.items() if k not in _SECRET_KEYS}
 
-    # MAC 을 안 보내는 보드는 None 키로 찾는다 (devices 의 MAC 빈 행)
-    body, status, weather = await _weather_body(_locations.get(row.get("mac"), _DEFAULT_LOCATION))
+    body, status, weather = await _weather_body(_location(device))
     row.update(weather)
     _append_report(row)
 
@@ -382,6 +517,31 @@ async def weather_report(request: Request) -> JSONResponse:
     print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm{tail}", flush=True)
 
     return JSONResponse(body, status_code=status, background=_flush_if_due())
+
+
+async def _check_in(report: dict, mac: str | None, ip: str) -> JSONResponse:
+    """등록 전 보드가 등록됐는지 묻는다. 측정값은 싣지 않으므로 보고로 저장하지 않고, 등록되면 그때부터
+    날씨를 준다. 이 경로만 DB 를 바로 쓰는데, 보드 하나가 등록하는 1시간 동안만 묻는다."""
+    token, code = _token(report.get("token")), _code(report.get("claim_code"))
+    if not (token and code and mac):
+        return JSONResponse({"error": "bad body"}, status_code=400)
+    if not _allowed(f"check-in:{ip}", _CHECK_INS_PER_IP):
+        return JSONResponse({"error": "too many requests"}, status_code=429)
+    try:
+        result, _ = await run_in_threadpool(db.board_check_in, db.hash_token(token), mac, code)
+    except Exception as e:
+        print(f"check-in failed: {e!r}", flush=True)
+        return JSONResponse({"error": "try again later"}, status_code=503)
+    if result == "taken":
+        # 다른 보드가 같은 코드를 쓰고 있다. 보드는 코드를 새로 만들어 띄운다.
+        return JSONResponse({"registered": False, "new_code": True}, status_code=409)
+    if result != "registered":
+        return JSONResponse({"registered": False})
+    await run_in_threadpool(_load_devices)
+    body, status, _ = await _weather_body(_location(_by_token.get(db.hash_token(token))))
+    print(f"registered: {mac}", flush=True)
+    return JSONResponse({**body, "registered": True}, status_code=status)
+
 
 @mcp.custom_route("/auth/login", methods=["GET"])
 async def login(request: Request) -> RedirectResponse:
@@ -415,24 +575,66 @@ async def root(request: Request) -> RedirectResponse:
     return RedirectResponse("/dashboard")
 
 
+# 대시보드 위쪽에 띄우는 안내. 주소의 ?notice= 는 이 키만 받으므로 다른 글자가 페이지에 들어가지 않는다.
+_NOTICES = {
+    **_ENTER_RESULTS,
+    "released": "등록을 해제했습니다. 보드는 다음 보고 때 새 코드를 띄웁니다. 지난 기록은 계속 볼 수 있습니다.",
+    "not_released": "내가 주인인 등록된 보드만 등록을 해제할 수 있습니다.",
+}
+
+
+def _signed_in(request: Request) -> str | None:
+    return auth.session_user(request.cookies.get("emcp_session", ""))
+
+
 @mcp.custom_route("/dashboard", methods=["GET"])
 async def dashboard_page(request: Request):
-    """로그인한 사람이 볼 수 있는 보드의 보고를 훑어보는 페이지.
+    """로그인한 사람이 볼 수 있는 보드의 보고를 훑어보고, 보드를 등록하거나 등록을 해제하는 페이지.
 
-    ?mac=... 을 주면 그 기기만. 안 주면 전부 섞어서 보여주고 표에 mac 열이 붙는다. 남의 MAC 을 넣으면
-    보고가 없는 빈 화면이 나온다 — 그 보드가 있는지조차 알려 주지 않는다.
+    ?mac=... 을 주면 그 보드만. 안 주면 전부 섞어서 보여주고 표에 보드 열이 붙는다. 남의 MAC 을 넣으면
+    보고가 없는 빈 화면이 나온다. 그 보드가 있는지조차 알려 주지 않는다.
     아직 Neon 으로 옮기지 않은 보고를 먼저 옮긴 뒤 읽는다. 그래야 방금 들어온 보고까지 보인다.
     """
-    user = auth.session_user(request.cookies.get("emcp_session", ""))
+    user = _signed_in(request)
     if not user:
         return RedirectResponse("/auth/login")
     _seal_buffer()
     await run_in_threadpool(_flush_sealed)
     rows = await run_in_threadpool(db.read_reports, user)
-    return HTMLResponse(dashboard.render(rows, _tag(request.query_params.get("mac"))))
+    boards = await run_in_threadpool(db.list_devices, user)
+    pending = await run_in_threadpool(db.pending_codes, user)
+    notice = _NOTICES.get(request.query_params.get("notice", ""))
+    return HTMLResponse(dashboard.render(rows, _tag(request.query_params.get("mac")),
+                                         boards=boards, pending=pending, notice=notice))
+
+
+@mcp.custom_route("/dashboard/claim", methods=["POST"])
+async def dashboard_claim(request: Request) -> RedirectResponse:
+    """대시보드에서 보드 디스플레이의 등록 코드를 입력한다. 로그인 쿠키는 SameSite=Lax 라 다른 사이트가
+    보낸 POST 에는 실리지 않는다."""
+    user = _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    result = await _enter_code(user, form.get("code"))
+    return RedirectResponse(f"/dashboard?notice={result}", status_code=303)
+
+
+@mcp.custom_route("/dashboard/release", methods=["POST"])
+async def dashboard_release(request: Request) -> RedirectResponse:
+    """보드의 등록을 해제한다. 보드를 남에게 넘길 때 전 주인이 누른다."""
+    user = _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    device_id = _int(form.get("device_id"))
+    released = device_id is not None and await run_in_threadpool(db.release_device, user, device_id)
+    if released:
+        await run_in_threadpool(_load_devices)
+    return RedirectResponse(f"/dashboard?notice={'released' if released else 'not_released'}", status_code=303)
 
 
 if __name__ == "__main__":
-    # 위치 사본을 미리 채운다. 따로 스레드에서 읽으니 DB 가 느려도 서버는 바로 뜬다
-    threading.Thread(target=_load_locations, daemon=True).start()
+    # 보드 사본을 미리 채운다. 따로 스레드에서 읽으니 DB 가 느려도 서버는 바로 뜬다
+    threading.Thread(target=_load_devices, daemon=True).start()
     mcp.run(transport="streamable-http")

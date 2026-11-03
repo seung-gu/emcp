@@ -21,6 +21,7 @@ ESP32 e-ink 보드는 깨어날 때마다 이 서버에 상태를 보고하고, 
 - 도구:
   | 도구 | 동작 |
   |------|------|
+  | `register_device(code)` | 보드 디스플레이의 6자리 등록 코드로 보드를 내 계정에 등록 |
   | `get_weather_location` | 내 보드마다 번호, 이름, MAC, 날씨 위치, 역할 (`"3 / 거실 / E8F60A17AF28 / 뮌헨 (기본값) / 주인"`) |
   | `search_location(query, count=5)` | 지명으로 좌표 후보 검색 (open-meteo geocoding) |
   | `set_weather_location(device_id, name, latitude, longitude)` | 보드 하나의 날씨 위치 설정. 주인만 |
@@ -48,22 +49,41 @@ LLM 이 기억에 의존해 좌표를 넣으면 **틀려도 에러 없이 엉뚱
 
 | 메서드 & 경로 | 응답 | 용도 |
 |---------------|------|------|
-| `POST /weather`| 날씨 JSON (아래) | ESP32 가 wake 마다 호출 |
+| `POST /weather`| 날씨 JSON (아래) | ESP32 가 wake 마다 호출. 등록 전에는 등록 확인 |
 | `GET /health` | `ok` | Fly.io 헬스체크 |
 
-`POST /weather` 의 본문은 그 wake 의 상태 보고다. 날씨 요청에 얹혀 가므로 왕복이
-늘지 않는다. 서버는 `mac` 으로 보드를 찾아 그 보드 위치의 날씨를 돌려준다:
+등록 전 보드는 측정값 없이 토큰과 등록 코드만 보내 등록됐는지 묻는다. 등록 순서와 보드가 응답마다
+할 일은 [docs/multi-user-rollout.ko.md](docs/multi-user-rollout.ko.md) 에 있다:
 
 ```json
-{"mac": "E8F60A17AF28", "battery_mv": 3912, "wifi_ms": 184, "rssi": -58}
+{"mac": "E8F60A17AF28", "token": "<소문자 16진수 64자>", "claim_code": "4J7K2P"}
 ```
 
-수치는 숫자로 보내고 `°C` 나 `km/h` 는 기기가 붙인다:
+| 응답 | 뜻 |
+|------|----|
+| 200 날씨 + `"registered": true` | 등록됨. 이제부터 평소처럼 보고 |
+| 200 `{"registered": false}` | 아직 아무도 코드를 입력하지 않음 |
+| 409 `"new_code": true` | 다른 보드가 같은 코드를 쓰는 중. 코드를 새로 만듦 |
+
+등록된 보드의 본문은 그 wake 의 상태 보고다. 날씨 요청에 얹혀 가므로 왕복이 늘지 않는다.
+서버는 토큰으로 보드를 찾아 그 보드 위치의 날씨를 돌려준다:
+
+```json
+{"mac": "E8F60A17AF28", "token": "<토큰>", "battery_mv": 3912, "wifi_ms": 184, "rssi": -58}
+```
+
+모르는 토큰(등록 해제된 보드)에는 401 `{"registered": false}` 를 준다. 보드는 이때만 토큰을 지우고
+새 코드를 띄운다. 서버가 보드를 확인하지 못한 경우는 429(횟수 제한)나 503(DB 장애)이라 토큰을 지우지
+않는다.
+
+수치는 숫자로 보내고 `°C` 나 `km/h` 는 기기가 붙인다. 바깥 날씨는 옛 펌웨어가 읽는 이름(`temp_c` 등)과
+새 펌웨어가 읽는 이름(`out_temp_c` 등)을 같이 보낸다:
 
 ```json
 {"city": "뮌헨", "temp_c": 19, "cond": "구름 조금", "wind_kmh": 4,
  "humidity": 61, "temp_max_c": 24, "temp_min_c": 17, "pop": 25,
- "stamp": "Fri 14:30"}
+ "stamp": "Fri 14:30", "out_temp_c": 19, "out_humidity": 61,
+ "out_temp_max_c": 24, "out_temp_min_c": 17}
 ```
 
 조회에 실패하면 날씨 키를 통째로 빼고 `{"city": "뮌헨"}` 만 남기며 **HTTP 500** 을
@@ -110,7 +130,9 @@ fly deploy --ha=false
 ```
 
 보드들이 아직 옛 주소(`emcp-led.fly.dev`)로 보고하므로, 보드를 다시 플래싱할 때까지는 옛 앱에도
-같은 코드를 올린다: `fly deploy --ha=false -a emcp-led`.
+같은 코드를 올린다: `fly deploy --ha=false -a emcp-led`. 옛 펌웨어는 토큰 없이 보고하므로 옛 앱에만
+`ACCEPT_TOKENLESS=1` 을 준다. 이 값이 빠지면 옛 보드의 보고가 전부 거절되고, 보드는 5분마다 다시 시도하면서
+배터리를 쓴다. `emcp` 에는 주지 않는다.
 
 - MCP 엔드포인트: `https://<app>.fly.dev/mcp`
 - 보드 보고: `POST https://<app>.fly.dev/weather`
