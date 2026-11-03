@@ -254,7 +254,7 @@ def _caller() -> str:
 # 코드를 입력한 결과. 대시보드 안내와 Claude 답에 같이 쓴다.
 _ENTER_RESULTS = {
     "registered": "보드를 등록했습니다.",
-    "pending": "코드를 받았습니다. 보드의 RESET 버튼을 한 번 누르면 등록됩니다.",
+    "pending": "코드를 받았습니다. 보드의 RESET 버튼을 한 번 누르면 바로 등록됩니다.",
     "taken": "이미 다른 계정이 입력한 코드입니다. 보드 디스플레이의 코드를 다시 확인해 주세요.",
     "mac_in_use": "이 보드는 다른 계정에 등록된 적이 있어서 지금은 등록할 수 없습니다.",
     "invalid": "등록 코드는 보드 디스플레이에 나온 6자리입니다.",
@@ -580,6 +580,7 @@ _NOTICES = {
     **_ENTER_RESULTS,
     "released": "등록을 해제했습니다. 보드는 다음 보고 때 새 코드를 띄웁니다. 지난 기록은 계속 볼 수 있습니다.",
     "not_released": "내가 주인인 등록된 보드만 등록을 해제할 수 있습니다.",
+    "prefilled": "보드 디스플레이의 코드를 채워 두었습니다. '보드 등록'을 누르세요.",
 }
 
 
@@ -603,9 +604,14 @@ async def dashboard_page(request: Request):
     rows = await run_in_threadpool(db.read_reports, user)
     boards = await run_in_threadpool(db.list_devices, user)
     pending = await run_in_threadpool(db.pending_codes, user)
-    notice = _NOTICES.get(request.query_params.get("notice", ""))
-    return HTMLResponse(dashboard.render(rows, _tag(request.query_params.get("mac")),
-                                         boards=boards, pending=pending, notice=notice))
+    # QR 로 왔으면 코드를 입력 칸에 채운다. 로그인을 거쳐 왔으면 /r 이 쿠키에 맡겨 둔 코드다.
+    prefill = _code(request.query_params.get("code")) or _code(request.cookies.get("emcp_claim"))
+    notice = _NOTICES.get(request.query_params.get("notice", "")) or (prefill and _NOTICES["prefilled"])
+    response = HTMLResponse(dashboard.render(rows, _tag(request.query_params.get("mac")), boards=boards,
+                                             pending=pending, notice=notice, prefill=prefill))
+    if "emcp_claim" in request.cookies:
+        response.delete_cookie("emcp_claim")
+    return response
 
 
 @mcp.custom_route("/dashboard/claim", methods=["POST"])
@@ -632,6 +638,23 @@ async def dashboard_release(request: Request) -> RedirectResponse:
     if released:
         await run_in_threadpool(_load_devices)
     return RedirectResponse(f"/dashboard?notice={'released' if released else 'not_released'}", status_code=303)
+
+
+@mcp.custom_route("/r/{code}", methods=["GET"])
+async def scanned(request: Request) -> RedirectResponse:
+    """보드 디스플레이의 QR 이 여는 주소. 코드가 채워진 대시보드로 보낸다. 로그인이 안 돼 있으면 로그인을
+    거친 뒤에도 코드가 남도록 쿠키에 10분 맡겨 둔다.
+
+    여는 것만으로 등록하지는 않는다. 남이 보낸 링크를 눌렀다고 그 사람의 보드가 내 계정에 붙으면 안 되니,
+    대시보드에서 '보드 등록' 을 눌러야 등록된다."""
+    code = _code(request.path_params.get("code"))
+    if not code:
+        return RedirectResponse("/dashboard")
+    if _signed_in(request):
+        return RedirectResponse(f"/dashboard?code={code}")
+    response = RedirectResponse("/auth/login")
+    response.set_cookie("emcp_claim", code, max_age=600, **_COOKIE)
+    return response
 
 
 if __name__ == "__main__":

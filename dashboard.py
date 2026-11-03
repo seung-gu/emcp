@@ -219,7 +219,7 @@ def _device_links(rows: list[dict], mac: str | None) -> str:
     return f'<p class="devices">{"".join(links)}</p>'
 
 
-def _boards_section(boards: list[dict], pending: list[dict], notice: str | None) -> str:
+def _boards_section(boards: list[dict], pending: list[dict], notice: str | None, prefill: str | None) -> str:
     """내 보드 목록과 등록 해제 버튼, 등록 코드 입력 칸, 입력해 두고 보드를 기다리는 코드. 보드 이름과
     도시는 사람이 정한 글자라 이스케이프한다. 코드는 server.py 가 정한 글자만 통과한다."""
     lines = []
@@ -255,14 +255,16 @@ def _boards_section(boards: list[dict], pending: list[dict], notice: str | None)
         + "<h2>내 보드</h2>" + table
         + '<form class="claim" method="post" action="/dashboard/claim">'
           '<input name="code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false"'
-          ' placeholder="4J7K2P" aria-label="등록 코드"><button type="submit">보드 등록</button></form>'
-        + '<p class="note">보드 디스플레이에 나온 6자리 등록 코드를 넣고, 보드의 RESET 버튼을 한 번 누르세요.</p>'
+          f' placeholder="4J7K2P" aria-label="등록 코드" value="{prefill or ""}">'
+          '<button type="submit">보드 등록</button></form>'
+        + '<p class="note">보드 디스플레이의 QR을 찍거나 6자리 코드를 넣은 뒤, 보드의 RESET 버튼을 한 번'
+          ' 누르세요.</p>'
         + (f'<ul class="waiting">{waiting}</ul>' if waiting else "")
     )
 
 
 def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pending: list[dict] = (),
-           notice: str | None = None) -> str:
+           notice: str | None = None, prefill: str | None = None) -> str:
     # 보드별로 나눠야 하는 처리(_attach_awake)는 전체를 대상으로 한 뒤에 거른다.
     _drop_bad_battery(rows)
     _attach_awake(rows)
@@ -304,7 +306,7 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
             + f" / {len(knows)}건" if tally else f"{len(knows)}건 전부 정상"))
 
     return _TEMPLATE.substitute(
-        boards=_boards_section(list(boards), list(pending), notice),
+        boards=_boards_section(list(boards), list(pending), notice, prefill),
         devices=devices,
         mac_th="" if mac else "<th>보드</th>",
         sub=" · ".join(bits),
