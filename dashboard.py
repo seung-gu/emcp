@@ -219,9 +219,23 @@ def _device_links(rows: list[dict], mac: str | None) -> str:
     return f'<p class="devices">{"".join(links)}</p>'
 
 
-def _boards_section(boards: list[dict], pending: list[dict], notice: str | None, prefill: str | None) -> str:
-    """내 보드 목록과 등록 해제 버튼, 등록 코드 입력 칸, 입력해 두고 보드를 기다리는 코드. 보드 이름과
-    도시는 사람이 정한 글자라 이스케이프한다. 코드는 server.py 가 정한 글자만 통과한다."""
+def _history_offer(h: dict) -> str:
+    """등록된 보드에 같은 이메일의 예전 기록이 있을 때 가져올지 묻는 줄. 값은 모두 DB 가 만든 숫자와 시각이다."""
+    span = f'{h["first"]:%Y-%m-%d} ~ {h["last"]:%Y-%m-%d}'
+    def button(choice: str, label: str) -> str:
+        return (f'<form method="post" action="/dashboard/history"><input type="hidden" name="device_id"'
+                f' value="{h["device_id"]}"><input type="hidden" name="choice" value="{choice}">'
+                f'<button type="submit">{label}</button></form>')
+    return (f'<tr class="offer"><td colspan="4">이 보드의 예전 기록 {h["reports"]:,}건({span})이 있습니다.'
+            f' 가져올까요? {button("import", "가져오기")}{button("keep", "그냥 두기")}</td></tr>')
+
+
+def _boards_section(boards: list[dict], pending: list[dict], notice: str | None, prefill: str | None,
+                    history: list[dict]) -> str:
+    """내 보드 목록과 등록 해제 버튼, 등록 코드 입력 칸, 입력해 두고 보드를 기다리는 코드. 예전 기록을 가져올
+    수 있는 보드에는 그 아래에 묻는 줄을 붙인다. 보드 이름과 도시는 사람이 정한 글자라 이스케이프한다. 코드는
+    server.py 가 정한 글자만 통과한다."""
+    offers = {h["device_id"]: h for h in history}
     lines = []
     for b in boards:
         where = html.escape(b["city"]) if b["city"] else '<span class="dim">기본값</span>'
@@ -239,6 +253,8 @@ def _boards_section(boards: list[dict], pending: list[dict], notice: str | None,
             )
         lines.append(f"<tr><td>{_board(b['name'], b['mac']) or 'MAC 없음'}</td><td>{where}</td>"
                      f"<td>{state}</td><td>{action}</td></tr>")
+        if b["id"] in offers:
+            lines.append(_history_offer(offers[b["id"]]))
     table = (
         '<table class="boards"><tr><th>보드</th><th>날씨 위치</th><th>상태</th><th></th></tr>'
         + "".join(lines) + "</table>"
@@ -264,7 +280,7 @@ def _boards_section(boards: list[dict], pending: list[dict], notice: str | None,
 
 
 def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pending: list[dict] = (),
-           notice: str | None = None, prefill: str | None = None) -> str:
+           notice: str | None = None, prefill: str | None = None, history: list[dict] = ()) -> str:
     # 보드별로 나눠야 하는 처리(_attach_awake)는 전체를 대상으로 한 뒤에 거른다.
     _drop_bad_battery(rows)
     _attach_awake(rows)
@@ -306,7 +322,7 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
             + f" / {len(knows)}건" if tally else f"{len(knows)}건 전부 정상"))
 
     return _TEMPLATE.substitute(
-        boards=_boards_section(list(boards), list(pending), notice, prefill),
+        boards=_boards_section(list(boards), list(pending), notice, prefill, list(history)),
         devices=devices,
         mac_th="" if mac else "<th>보드</th>",
         sub=" · ".join(bits),

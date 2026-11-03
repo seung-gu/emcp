@@ -121,6 +121,17 @@ def finish_sign_in(started_sealed: str, code: str | None, state: str | None) -> 
     return seal_data({"until": time.time() + SIGN_IN_HOURS * 3600, "sub": result.user.id}, _COOKIE_PASSWORD)
 
 
+def user_email(user_id: str) -> str | None:
+    """WorkOS 에 있는 그 사람의 이메일. 보드에 주인 이메일로 남겨, 계정을 지웠다 다시 만든 같은 사람에게만
+    예전 기록을 가져올지 묻는 데 쓴다. 이메일로 사람을 구분하지는 않는다. 못 가져오면 None 이고, 그러면 등록은
+    되지만 예전 기록을 묻지 않는다."""
+    try:
+        return _workos().user_management.get_user(user_id).email
+    except WorkOSError as e:
+        logging.getLogger(__name__).warning("could not fetch the email of %s: %s", user_id, e)
+        return None
+
+
 def deleted_users_since(start: datetime) -> list[tuple[datetime, str]]:
     """start 이후 WorkOS 에서 지워진 계정의 (지운 시각, 사용자 ID), 오래된 것부터. 한 번에 100개까지라
     더 있으면 다음 확인 때 이어서 가져온다."""

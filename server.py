@@ -60,7 +60,8 @@ def _load_devices() -> bool:
         print(f"loading devices failed, keeping the old copy: {e!r}", flush=True)
         return False
     _by_token = {r["token_hash"]: r for r in rows if r["token_hash"]}
-    _by_mac = {r["mac"]: r for r in rows}   # MAC 중복 금지가 남아 있어 MAC 하나에 한 행이다
+    # 같은 MAC 의 행이 여럿이면 가장 오래된 행. 토큰 없는 옛 보고를 db._device_ids 와 같은 행으로 보낸다.
+    _by_mac = {r["mac"]: r for r in sorted(rows, key=lambda r: r["id"], reverse=True)}
     return True
 
 
@@ -284,7 +285,6 @@ _ENTER_RESULTS = {
     "registered": "보드를 등록했습니다.",
     "pending": "코드를 받았습니다. 보드의 RESET 버튼을 한 번 누르면 바로 등록됩니다.",
     "taken": "이미 다른 계정이 입력한 코드입니다. 보드 디스플레이의 코드를 다시 확인해 주세요.",
-    "mac_in_use": "이 보드는 다른 계정에 등록된 적이 있어서 지금은 등록할 수 없습니다.",
     "invalid": "등록 코드는 보드 디스플레이에 나온 6자리입니다.",
     "limited": "코드를 너무 많이 입력했습니다. 1시간 뒤에 다시 해 주세요.",
     "error": "서버가 잠시 DB에 닿지 못했습니다. 잠시 뒤에 다시 해 주세요.",
@@ -298,7 +298,8 @@ async def _enter_code(user: str, raw) -> str:
     if not _allowed(f"code:{user}", _CODES_PER_USER):
         return "limited"
     try:
-        result, _ = await run_in_threadpool(db.enter_code, user, code)
+        email = await run_in_threadpool(auth.user_email, user)
+        result, _ = await run_in_threadpool(db.enter_code, user, code, email)
     except Exception as e:
         print(f"entering a code failed: {e!r}", flush=True)
         return "error"
@@ -609,6 +610,9 @@ _NOTICES = {
     "released": "등록을 해제했습니다. 보드는 다음 보고 때 새 코드를 띄웁니다. 지난 기록은 계속 볼 수 있습니다.",
     "not_released": "내가 주인인 등록된 보드만 등록을 해제할 수 있습니다.",
     "prefilled": "보드 디스플레이의 코드를 채워 두었습니다. '보드 등록'을 누르세요.",
+    "imported": "예전 기록을 이 보드로 가져왔습니다.",
+    "kept": "예전 기록은 가져오지 않고 그대로 두었습니다. 다시 묻지 않습니다.",
+    "not_imported": "가져올 예전 기록이 없거나 내가 주인인 보드가 아닙니다.",
 }
 
 
@@ -632,11 +636,12 @@ async def dashboard_page(request: Request):
     rows = await run_in_threadpool(db.read_reports, user)
     boards = await run_in_threadpool(db.list_devices, user)
     pending = await run_in_threadpool(db.pending_codes, user)
+    history = await run_in_threadpool(db.previous_history, user)
     # QR 로 왔으면 코드를 입력 칸에 채운다. 로그인을 거쳐 왔으면 /r 이 쿠키에 맡겨 둔 코드다.
     prefill = _code(request.query_params.get("code")) or _code(request.cookies.get("emcp_claim"))
     notice = _NOTICES.get(request.query_params.get("notice", "")) or (prefill and _NOTICES["prefilled"])
     response = HTMLResponse(dashboard.render(rows, _tag(request.query_params.get("mac")), boards=boards,
-                                             pending=pending, notice=notice, prefill=prefill))
+                                             pending=pending, notice=notice, prefill=prefill, history=history))
     if "emcp_claim" in request.cookies:
         response.delete_cookie("emcp_claim")
     return response
@@ -666,6 +671,26 @@ async def dashboard_release(request: Request) -> RedirectResponse:
     if released:
         await run_in_threadpool(_load_devices)
     return RedirectResponse(f"/dashboard?notice={'released' if released else 'not_released'}", status_code=303)
+
+
+@mcp.custom_route("/dashboard/history", methods=["POST"])
+async def dashboard_history(request: Request) -> RedirectResponse:
+    """등록된 보드에 예전 기록이 있을 때 "가져오기"(choice=import) 또는 "그냥 두기"(choice=keep). 예전 기록은
+    주인 이메일이 같은 경우에만 대시보드에 뜬다 (db.previous_history)."""
+    user = _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    device_id = _int(form.get("device_id"))
+    if device_id is None:
+        return RedirectResponse("/dashboard?notice=not_imported", status_code=303)
+    if form.get("choice") == "import":
+        done = await run_in_threadpool(db.import_history, user, device_id)
+        notice = "imported" if done else "not_imported"
+    else:
+        done = await run_in_threadpool(db.decline_history, user, device_id)
+        notice = "kept" if done else "not_imported"
+    return RedirectResponse(f"/dashboard?notice={notice}", status_code=303)
 
 
 @mcp.custom_route("/r/{code}", methods=["GET"])

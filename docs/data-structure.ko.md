@@ -75,8 +75,10 @@
 | `created_at` | 처음 본 시각 | 1 |
 | `city`, `lat`, `lon` | 날씨 위치 설정. 다음 보고 때 이 좌표로 날씨를 조회 | 3 |
 | `token_hash` | 보드 토큰의 해시. 주인이 등록을 해제하면 비움 | 4 |
+| `owner_email` | 등록한 사람의 이메일. 같은 보드를 다시 등록한 사람과 같으면 예전 기록을 가져올지 물음 | 4 |
+| `history_declined` | 예전 기록을 "그냥 두기"로 한 보드. 다시 묻지 않음 | 4 |
 
-1~3단계에는 MAC으로 보드를 찾고, MAC 하나에 한 행만 둡니다. MAC을 보내지 않는 친구 보드는 MAC이 빈 행 하나에 모입니다. 4단계부터는 토큰으로 보드를 구분합니다.
+1~3단계에는 MAC으로 보드를 찾고, MAC 하나에 한 행만 뒀습니다. MAC을 보내지 않던 친구 보드는 MAC이 빈 행 하나에 모입니다. 4단계부터는 토큰으로 보드를 구분하고 MAC 중복 금지도 풀었습니다. 등록된 적 있는 보드를 다른 계정이 등록하면 같은 MAC의 새 행으로 시작합니다. 토큰 없는 옛 보고는 같은 MAC의 가장 오래된 행으로 갑니다.
 
 ### `report_raw`, `sensor_logs`
 
@@ -101,7 +103,7 @@
 | 테이블 | 칸 | 단계 |
 |---|---|---|
 | `device_access` | `device_id`, `user_id`, `role` (`owner` 또는 `viewer`) | 2 |
-| `claim_codes` | `code`, `user_id`(입력한 사람), `token_hash`와 `mac`(물어본 보드), `expires_at` | 4 |
+| `claim_codes` | `code`, `user_id`와 `email`(입력한 사람), `token_hash`와 `mac`(물어본 보드), `expires_at` | 4 |
 
 보드 하나를 여러 사람이 공유할 수 있도록 `device_access`는 `devices`와 따로 둡니다. 공유하면 행을 하나 넣고, 공유를 취소하면 그 행을 지웁니다.
 
