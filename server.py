@@ -372,6 +372,18 @@ async def rename_device(device_id: int, name: str) -> str:
     return f"{device_id}번 보드 이름을 '{new}' 로 바꿨다"
 
 
+async def _geocode(query: str, count: int) -> list[dict] | None:
+    """open-meteo 로 지명의 좌표 후보를 찾는다. Claude 의 search_location 과 대시보드의 위치 바꾸기가 같이
+    쓴다. 조회에 실패하면 None."""
+    params = {"name": query, "count": max(1, min(count, 10)), "language": "ko", "format": "json"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get("https://geocoding-api.open-meteo.com/v1/search", params=params)
+            return resp.json().get("results", [])
+    except Exception:
+        return None
+
+
 @mcp.tool()
 async def search_location(query: str, count: int = 5) -> str:
     """지명으로 좌표 후보를 찾는다. 후보 중 하나를 골라 `set_weather_location` 에 넘긴다.
@@ -383,12 +395,8 @@ async def search_location(query: str, count: int = 5) -> str:
         query: 찾을 지명.
         count: 반환할 후보 개수 (1~10).
     """
-    params = {"name": query, "count": max(1, min(count, 10)), "language": "ko", "format": "json"}
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get("https://geocoding-api.open-meteo.com/v1/search", params=params)
-            results = resp.json().get("results", [])
-    except Exception:
+    results = await _geocode(query, count)
+    if results is None:
         return "지오코딩 API 조회에 실패했다"
     if not results:
         return f"'{query}' 에 해당하는 지명을 찾지 못했다. 로마자 표기로 다시 시도해봐라"
@@ -465,7 +473,8 @@ async def _weather_body(loc: dict) -> tuple[dict, int, dict]:
                   "out_temp_max_c": daily["temperature_2m_max"][0],
                   "out_temp_min_c": daily["temperature_2m_min"][0],
                   "weather_code": cur["weather_code"], "wind_kmh": cur["wind_speed_10m"],
-                  "pop": daily["precipitation_probability_max"][0]}
+                  "pop": daily["precipitation_probability_max"][0],
+                  "timezone": data.get("timezone")}   # timezone=auto 로 open-meteo 가 알려 준 현지 시간대
         return ({"city": loc["name"], "temp_c": temp, "cond": desc, "wind_kmh": wind,
                  "humidity": humid, "temp_max_c": tmax, "temp_min_c": tmin, "pop": pop,
                  "stamp": stamp,
@@ -613,11 +622,32 @@ _NOTICES = {
     "imported": "예전 기록을 이 보드로 가져왔습니다.",
     "kept": "예전 기록은 가져오지 않고 그대로 두었습니다. 다시 묻지 않습니다.",
     "not_imported": "가져올 예전 기록이 없거나 내가 주인인 보드가 아닙니다.",
+    "renamed": "보드 이름을 바꿨습니다.",
+    "not_renamed": "이름은 1~40자여야 하고, 내가 주인인 보드만 바꿀 수 있습니다.",
+    "located": "날씨 위치를 바꿨습니다. 보드가 다음에 깨어날 때(30분 안) 화면에 반영됩니다.",
+    "not_located": "위치를 바꾸지 못했습니다. 검색한 후보 중 하나를 골라 주세요.",
 }
 
 
-def _signed_in(request: Request) -> str | None:
-    return auth.session_user(request.cookies.get("emcp_session", ""))
+# 대시보드 로그인은 이 서버가 만든 쿠키라 WorkOS 에서 계정을 지워도 12시간 살아 있다. 그래서 대시보드에
+# 들어올 때마다 계정이 아직 있는지 WorkOS 에 묻는다. 같은 사람은 10분에 한 번만 묻고, 지워진 계정은 계속
+# 지워진 것으로 기억한다. 보드를 바꾸는 버튼(코드 입력, 등록 해제, 이름·위치 바꾸기)도 모두 이걸 거친다.
+_ALIVE_SECONDS = 600
+_alive: dict[str, tuple[float, bool]] = {}
+
+
+async def _signed_in(request: Request) -> str | None:
+    """로그인한 사람의 사용자 ID. 쿠키가 없거나, 만료됐거나, 그 계정이 WorkOS 에서 지워졌으면 None."""
+    user = auth.session_user(request.cookies.get("emcp_session", ""))
+    if not user:
+        return None
+    checked_at, alive = _alive.get(user, (float("-inf"), True))
+    if alive and time.monotonic() - checked_at >= _ALIVE_SECONDS:
+        exists = await run_in_threadpool(auth.user_exists, user)
+        if exists is not None:              # 모르면 지금 상태를 유지하고 다음에 다시 묻는다
+            alive = exists
+            _alive[user] = (time.monotonic(), alive)
+    return user if alive else None
 
 
 @mcp.custom_route("/dashboard", methods=["GET"])
@@ -628,7 +658,7 @@ async def dashboard_page(request: Request):
     보고가 없는 빈 화면이 나온다. 그 보드가 있는지조차 알려 주지 않는다.
     아직 Neon 으로 옮기지 않은 보고를 먼저 옮긴 뒤 읽는다. 그래야 방금 들어온 보고까지 보인다.
     """
-    user = _signed_in(request)
+    user = await _signed_in(request)
     if not user:
         return RedirectResponse("/auth/login")
     _seal_buffer()
@@ -651,7 +681,7 @@ async def dashboard_page(request: Request):
 async def dashboard_claim(request: Request) -> RedirectResponse:
     """대시보드에서 보드 디스플레이의 등록 코드를 입력한다. 로그인 쿠키는 SameSite=Lax 라 다른 사이트가
     보낸 POST 에는 실리지 않는다."""
-    user = _signed_in(request)
+    user = await _signed_in(request)
     if not user:
         return RedirectResponse("/auth/login", status_code=303)
     form = await request.form()
@@ -662,7 +692,7 @@ async def dashboard_claim(request: Request) -> RedirectResponse:
 @mcp.custom_route("/dashboard/release", methods=["POST"])
 async def dashboard_release(request: Request) -> RedirectResponse:
     """보드의 등록을 해제한다. 보드를 남에게 넘길 때 전 주인이 누른다."""
-    user = _signed_in(request)
+    user = await _signed_in(request)
     if not user:
         return RedirectResponse("/auth/login", status_code=303)
     form = await request.form()
@@ -677,7 +707,7 @@ async def dashboard_release(request: Request) -> RedirectResponse:
 async def dashboard_history(request: Request) -> RedirectResponse:
     """등록된 보드에 예전 기록이 있을 때 "가져오기"(choice=import) 또는 "그냥 두기"(choice=keep). 예전 기록은
     주인 이메일이 같은 경우에만 대시보드에 뜬다 (db.previous_history)."""
-    user = _signed_in(request)
+    user = await _signed_in(request)
     if not user:
         return RedirectResponse("/auth/login", status_code=303)
     form = await request.form()
@@ -693,6 +723,55 @@ async def dashboard_history(request: Request) -> RedirectResponse:
     return RedirectResponse(f"/dashboard?notice={notice}", status_code=303)
 
 
+# 대시보드에서 이름과 날씨 위치 바꾸기. Claude 의 rename_device, set_weather_location 과 같은 DB 함수를
+# 부르므로 어느 쪽에서 바꿔도 같은 값이다. 주인만 바꿀 수 있다.
+@mcp.custom_route("/dashboard/rename", methods=["POST"])
+async def dashboard_rename(request: Request) -> RedirectResponse:
+    user = await _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    device_id, name = _int(form.get("device_id")), _name(str(form.get("name") or ""))
+    done = device_id is not None and name and await run_in_threadpool(db.rename_device, user, device_id, name)
+    return RedirectResponse(f"/dashboard?notice={'renamed' if done else 'not_renamed'}", status_code=303)
+
+
+@mcp.custom_route("/dashboard/places", methods=["GET"])
+async def dashboard_places(request: Request) -> JSONResponse:
+    """위치 바꾸기의 지명 검색. 결과는 브라우저가 textContent 로 그리므로 지명에 무엇이 들어 있어도 된다."""
+    if not await _signed_in(request):
+        return JSONResponse({"error": "sign in"}, status_code=401)
+    query = (request.query_params.get("q") or "").strip()[:60]
+    if not query:
+        return JSONResponse([])
+    results = await _geocode(query, 6)
+    if results is None:
+        return JSONResponse({"error": "search failed"}, status_code=502)
+    return JSONResponse([
+        {"name": r["name"], "where": " · ".join(x for x in (r.get("admin1"), r.get("country")) if x),
+         "lat": r["latitude"], "lon": r["longitude"]}
+        for r in results
+    ])
+
+
+@mcp.custom_route("/dashboard/location", methods=["POST"])
+async def dashboard_location(request: Request) -> RedirectResponse:
+    user = await _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    device_id, city = _int(form.get("device_id")), _name(str(form.get("name") or ""))
+    try:
+        lat, lon = float(form.get("lat")), float(form.get("lon"))
+    except (TypeError, ValueError):
+        lat = lon = float("nan")             # 아래 범위 검사에서 걸린다
+    done = (device_id is not None and city and -90 <= lat <= 90 and -180 <= lon <= 180
+            and await run_in_threadpool(db.set_location, user, device_id, city, lat, lon))
+    if done:
+        await run_in_threadpool(_load_devices)
+    return RedirectResponse(f"/dashboard?notice={'located' if done else 'not_located'}", status_code=303)
+
+
 @mcp.custom_route("/r/{code}", methods=["GET"])
 async def scanned(request: Request) -> RedirectResponse:
     """보드 디스플레이의 QR 이 여는 주소. 코드가 채워진 대시보드로 보낸다. 로그인이 안 돼 있으면 로그인을
@@ -703,7 +782,7 @@ async def scanned(request: Request) -> RedirectResponse:
     code = _code(request.path_params.get("code"))
     if not code:
         return RedirectResponse("/dashboard")
-    if _signed_in(request):
+    if await _signed_in(request):
         return RedirectResponse(f"/dashboard?code={code}")
     response = RedirectResponse("/auth/login")
     response.set_cookie("emcp_claim", code, max_age=600, **_COOKIE)

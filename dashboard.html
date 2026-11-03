@@ -71,6 +71,20 @@
   table.boards form { margin: 0; }
   table.boards tr.offer td { font-size: .85rem; }
   table.boards tr.offer form { display: inline; margin-left: 6px; }
+  /* 이름·위치 바꾸기와 보드 추가. 평소에는 접혀 있고 누르면 칸이 열린다. */
+  details.edit { display: inline-block; margin-left: 8px; font-size: .78rem; }
+  details.edit[open] { display: block; margin: 6px 0 0; }
+  details.edit summary, details.add summary { cursor: pointer; opacity: .65; }
+  details.edit form { display: flex; gap: 6px; margin: 6px 0 0; align-items: center; }
+  details.edit .place-pick { flex-direction: column; align-items: flex-start; }
+  table.boards input[name="name"], table.boards input[name="q"] {
+    font: inherit; font-size: .85rem; width: 12em; padding: 2px 8px; color: inherit; background: none;
+    border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
+  .places { list-style: none; margin: 0; padding: 0; }
+  .places li { padding: 2px 0; }
+  .places .dim { margin-left: 0; }
+  details.add { margin: 12px 0 0; }
+  details.add summary { font-size: .85rem; }
   table.boards .dim { margin-left: 0; }
   .notice { margin: 0 0 16px; padding: 8px 12px; font-size: .875rem;
             border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
@@ -105,8 +119,7 @@ $boards
     <button type="button" data-zoom="2" aria-label="축소">축소 −</button>
   </span>
   <span class="hint">그래프를 좌우로 끌면 그 구간만 보기 · ⌘/Ctrl+휠이나 핀치로 확대·축소 · 좌우로
-    쓸어 이동 · 더블클릭하면 전체 · 점을 누르면 그때 날짜와 펌웨어. 그래프는 현지 시각, 아래 표는
-    UTC입니다.</span>
+    쓸어 이동 · 더블클릭하면 전체 · 점을 누르면 그때 날짜와 펌웨어. $tz_note</span>
 </div>
 
 <h2>배터리</h2>
@@ -144,7 +157,7 @@ $boards
 
 <h2>최근 보고</h2>
 <table>
-  <tr><th>시각 (UTC)</th>$mac_th<th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th>
+  <tr><th>시각 (현지)</th>$mac_th<th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th>
       <th>칩 °C</th><th>실내 °C</th><th>습도 %</th><th>I2C</th>
       <th>깨어 있던 ms</th><th>리셋 사유</th><th>못 보낸 보고</th></tr>
   $table
@@ -196,6 +209,8 @@ $logs
   var MIN_SPAN = HOUR;      // 이보다 좁게는 확대하지 않는다
   var WEEK = ["일", "월", "화", "수", "목", "금", "토"];
   var ts = data.t;
+  var TZ = data.tz;         // 날씨 위치의 시간대. 축과 시각 글자를 이 시간대로 그린다
+  function zoned(t) { return uPlot.tzDate(new Date(t * 1000), TZ); }
   var first = ts[0], last = ts[ts.length - 1];
   var view = { min: Math.max(first, last - 3 * DAY), max: last };
   var charts = [];
@@ -203,7 +218,7 @@ $logs
 
   function pad(n) { return (n < 10 ? "0" : "") + n; }
   function local(t) {
-    var d = new Date(t * 1000);
+    var d = zoned(t);
     return (d.getMonth() + 1) + "/" + d.getDate() + " (" + WEEK[d.getDay()] + ") " +
       pad(d.getHours()) + ":" + pad(d.getMinutes());
   }
@@ -249,7 +264,7 @@ $logs
   function xLabels(u, splits, ax, space, incr) {
     var prev = null;
     return splits.map(function (t) {
-      var d = new Date(t * 1000), day = (d.getMonth() + 1) + "/" + d.getDate();
+      var d = zoned(t), day = (d.getMonth() + 1) + "/" + d.getDate();
       if (incr >= DAY) return day;
       var s = (day !== prev ? day : "") + "\n" + pad(d.getHours()) + ":" + pad(d.getMinutes());
       prev = day;
@@ -386,6 +401,7 @@ $logs
       c.u = new uPlot({
         width: el.clientWidth, height: HEIGHT,
         legend: { show: false },
+        tzDate: zoned,                        // 눈금 위치도 날씨 위치의 자정·정시에 맞춘다
         scales: { x: { time: true, auto: false, min: view.min, max: view.max },
                   y: fixed ? { range: fixed } : {} },
         series: [{}, { stroke: p.fg, width: 1.5, spanGaps: false,
@@ -457,6 +473,53 @@ $logs
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", build);
   }
   build();
+})();
+</script>
+<script>
+// 위치 바꾸기: 도시를 검색해 후보 하나를 고르면 저장 칸이 채워진다. 지명은 사람이 쓴 글자이니 textContent 로만 넣는다.
+(function () {
+  "use strict";
+  document.addEventListener("submit", function (e) {
+    var search = e.target.closest(".place-search");
+    if (!search) return;
+    e.preventDefault();
+    var pick = search.nextElementSibling, list = pick.querySelector(".places"), save = pick.querySelector("button");
+    function field(name) { return pick.querySelector('input[name="' + name + '"]'); }
+    function note(text) {
+      var li = document.createElement("li");
+      li.className = "dim";
+      li.textContent = text;
+      list.appendChild(li);
+    }
+    list.innerHTML = "";
+    save.disabled = true;
+    pick.hidden = false;
+    note("검색 중…");
+    fetch("/dashboard/places?q=" + encodeURIComponent(search.querySelector('input[name="q"]').value.trim()),
+          { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function (places) {
+        list.innerHTML = "";
+        if (!places.length) return note("찾지 못했습니다. 로마자로 다시 검색해 보세요 (예: Gwangju).");
+        places.forEach(function (p) {
+          var li = document.createElement("li"), label = document.createElement("label");
+          var radio = document.createElement("input");
+          radio.type = "radio";
+          radio.name = "place";
+          radio.addEventListener("change", function () {
+            field("name").value = p.name;
+            field("lat").value = p.lat;
+            field("lon").value = p.lon;
+            save.disabled = false;
+          });
+          label.appendChild(radio);
+          label.appendChild(document.createTextNode(" " + p.name + (p.where ? " · " + p.where : "")));
+          li.appendChild(label);
+          list.appendChild(li);
+        });
+      })
+      .catch(function () { list.innerHTML = ""; note("검색에 실패했습니다. 잠시 뒤에 다시 해 주세요."); });
+  });
 })();
 </script>
 </body>

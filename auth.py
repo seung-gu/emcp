@@ -16,7 +16,7 @@ import jwt
 from cryptography.fernet import Fernet, InvalidToken
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from workos import WorkOSClient, WorkOSError
+from workos import NotFoundError, WorkOSClient, WorkOSError
 from workos.session import seal_data, unseal_data
 
 AUTH_ISSUER = os.environ.get("MCP_AUTH_ISSUER")
@@ -119,6 +119,19 @@ def finish_sign_in(started_sealed: str, code: str | None, state: str | None) -> 
         logging.getLogger(__name__).warning("sign-in code exchange failed: %s", e)
         raise SignInError("WorkOS 가 로그인을 끝내지 못했습니다. /dashboard 에서 다시 시작하세요.") from e
     return seal_data({"until": time.time() + SIGN_IN_HOURS * 3600, "sub": result.user.id}, _COOKIE_PASSWORD)
+
+
+def user_exists(user_id: str) -> bool | None:
+    """WorkOS 에 그 계정이 아직 있는지. 지워졌으면 False. WorkOS 에 닿지 못하면 None(모름)이고, 그때는
+    로그인을 끊지 않는다. WorkOS 장애로 모두가 쫓겨나면 안 되기 때문이다."""
+    try:
+        _workos().user_management.get_user(user_id)
+        return True
+    except NotFoundError:
+        return False
+    except WorkOSError as e:
+        logging.getLogger(__name__).warning("could not check whether %s still exists: %s", user_id, e)
+        return None
 
 
 def user_email(user_id: str) -> str | None:

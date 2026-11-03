@@ -6,8 +6,10 @@ import html
 import json
 from collections import Counter
 from datetime import datetime, timezone
+from functools import cache
 from pathlib import Path
 from string import Template
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 _TEMPLATE = Template((Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8"))
 
@@ -47,8 +49,36 @@ def rssi_label(rssi: int) -> str:
     return _WEAKEST
 
 
-def _hhmm(iso: str) -> str:
-    t = datetime.fromisoformat(iso)
+# 시각은 그 보고 때 날씨를 받은 위치의 현지 시각으로 보여 준다. 시간대는 server.py 가 날씨와 함께 보고에
+# 남긴다. 시간대가 기록되기 전 보고는 그 보드의 가장 최근 시간대를, 그것도 없으면 기본 위치(뮌헨)의 시간대를
+# 쓴다. 그때까지의 보고는 모두 뮌헨 날씨였다.
+_DEFAULT_TZ = "Europe/Berlin"
+
+
+@cache
+def _zone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(_DEFAULT_TZ)
+
+
+def _attach_tz(rows: list[dict]) -> None:
+    """보고마다 보여 줄 시간대를 tz 에 붙인다."""
+    latest: dict = {}
+    for r in reversed(rows):
+        if r.get("timezone"):
+            latest.setdefault(r.get("mac"), r["timezone"])
+    for r in rows:
+        r["tz"] = r.get("timezone") or latest.get(r.get("mac")) or _DEFAULT_TZ
+
+
+def _local(r: dict) -> datetime:
+    return datetime.fromisoformat(r["received_at"]).astimezone(_zone(r["tz"]))
+
+
+def _hhmm(r: dict) -> str:
+    t = _local(r)
     return f"{t.month}/{t.day} {t.hour:02d}:{t.minute:02d}"
 
 
@@ -70,6 +100,8 @@ def _plot_data(rows: list[dict], mac: str | None, nvs_total: int | None) -> str:
         # 크게 출렁이는 것처럼 보인다.
         "fixed": {"rssi": [-100, -40]},
         "guides": {"rssi": [[g, name] for g, name in RSSI_BANDS]},
+        # 그래프 축의 시간대. 가장 최근 보고의 위치를 따른다. 표는 줄마다 자기 시간대로 보여 준다.
+        "tz": rows[-1]["tz"] if rows else _DEFAULT_TZ,
     }
     if not mac:
         data["mac"] = [r.get("mac") for r in rows]
@@ -149,7 +181,7 @@ def _logs(recent: list[dict]) -> str:
     """보내지 못했던 보고들. 보드에 시계가 없어 항목마다 시각이 없으므로, 이것들을 싣고 온 보고의
     도착 시각 아래에 순서대로 묶는다."""
     blocks = [
-        f'<div class="logs"><b>{_hhmm(r["received_at"])}</b> 보고에 실려 온 {len(r["log"])}건'
+        f'<div class="logs"><b>{_hhmm(r)}</b> 보고에 실려 온 {len(r["log"])}건'
         f'<ol>{"".join(_log_entry(e) for e in r["log"])}</ol></div>'
         for r in recent if r.get("log")
     ]
@@ -209,13 +241,13 @@ def _device_links(rows: list[dict], mac: str | None) -> str:
     seen = {}
     for r in rows:
         if r.get("mac"):
-            seen[r["mac"]] = (r["received_at"], r.get("device_name"))
+            seen[r["mac"]] = (r, r.get("device_name"))
     if not seen:
         return ""
     links = [f'<a href="/dashboard"{" class=\'on\'" if not mac else ""}>전체</a>']
-    for m, (at, name) in sorted(seen.items()):
+    for m, (last, name) in sorted(seen.items()):
         on = " class='on'" if m == mac else ""
-        links.append(f'<a href="/dashboard?mac={m}"{on}>{_board(name, m)}<span class="dim">{_hhmm(at)}</span></a>')
+        links.append(f'<a href="/dashboard?mac={m}"{on}>{_board(name, m)}<span class="dim">{_hhmm(last)}</span></a>')
     return f'<p class="devices">{"".join(links)}</p>'
 
 
@@ -230,18 +262,41 @@ def _history_offer(h: dict) -> str:
             f' 가져올까요? {button("import", "가져오기")}{button("keep", "그냥 두기")}</td></tr>')
 
 
+def _rename_form(b: dict) -> str:
+    """이름 바꾸기. 펼치면 지금 이름이 들어 있는 칸이 나온다."""
+    current = html.escape(b["name"] or "", quote=True)
+    return ('<details class="edit"><summary>이름 바꾸기</summary>'
+            '<form method="post" action="/dashboard/rename">'
+            f'<input type="hidden" name="device_id" value="{b["id"]}">'
+            f'<input name="name" maxlength="40" required value="{current}" aria-label="보드 이름">'
+            '<button type="submit">저장</button></form></details>')
+
+
+def _location_form(b: dict) -> str:
+    """위치 바꾸기. 도시를 검색하면 dashboard.html 의 스크립트가 후보를 띄우고, 하나를 고르면 저장 칸이 채워진다.
+    같은 이름의 다른 도시를 잘못 고르지 않게 지역과 나라를 같이 보여 준다."""
+    return ('<details class="edit"><summary>위치 바꾸기</summary>'
+            '<form class="place-search"><input name="q" maxlength="60" required'
+            ' placeholder="도시 이름 (예: Berlin)" aria-label="도시 검색"><button type="submit">검색</button></form>'
+            '<form class="place-pick" method="post" action="/dashboard/location" hidden>'
+            f'<input type="hidden" name="device_id" value="{b["id"]}">'
+            '<input type="hidden" name="name"><input type="hidden" name="lat"><input type="hidden" name="lon">'
+            '<ul class="places"></ul><button type="submit" disabled>저장</button></form></details>')
+
+
 def _boards_section(boards: list[dict], pending: list[dict], notice: str | None, prefill: str | None,
                     history: list[dict]) -> str:
-    """내 보드 목록과 등록 해제 버튼, 등록 코드 입력 칸, 입력해 두고 보드를 기다리는 코드. 예전 기록을 가져올
-    수 있는 보드에는 그 아래에 묻는 줄을 붙인다. 보드 이름과 도시는 사람이 정한 글자라 이스케이프한다. 코드는
-    server.py 가 정한 글자만 통과한다."""
+    """내 보드 목록과 이름·위치 바꾸기, 등록 해제 버튼, 보드 추가(등록 코드 입력 칸), 입력해 두고 보드를 기다리는
+    코드. 예전 기록을 가져올 수 있는 보드에는 그 아래에 묻는 줄을 붙인다. 보드 이름과 도시는 사람이 정한 글자라
+    이스케이프한다. 코드는 server.py 가 정한 글자만 통과한다."""
     offers = {h["device_id"]: h for h in history}
     lines = []
     for b in boards:
         where = html.escape(b["city"]) if b["city"] else '<span class="dim">기본값</span>'
+        owner = b["role"] == "owner"
         if not b["registered"]:
             state, action = '<span class="dim">등록 안 됨</span>', ""
-        elif b["role"] != "owner":
+        elif not owner:
             state, action = "등록됨 (공유받음)", ""
         else:
             state = "등록됨"
@@ -251,8 +306,9 @@ def _boards_section(boards: list[dict], pending: list[dict], notice: str | None,
                 f'<input type="hidden" name="device_id" value="{b["id"]}">'
                 '<button type="submit">등록 해제</button></form>'
             )
-        lines.append(f"<tr><td>{_board(b['name'], b['mac']) or 'MAC 없음'}</td><td>{where}</td>"
-                     f"<td>{state}</td><td>{action}</td></tr>")
+        name_cell = (_board(b["name"], b["mac"]) or "MAC 없음") + (_rename_form(b) if owner else "")
+        where_cell = where + (_location_form(b) if owner else "")
+        lines.append(f"<tr><td>{name_cell}</td><td>{where_cell}</td><td>{state}</td><td>{action}</td></tr>")
         if b["id"] in offers:
             lines.append(_history_offer(offers[b["id"]]))
     table = (
@@ -266,9 +322,12 @@ def _boards_section(boards: list[dict], pending: list[dict], notice: str | None,
         f'<span class="dim">{max(1, int((p["expires_at"] - now).total_seconds() // 60))}분 남음</span></li>'
         for p in pending
     )
+    # 보드 추가 칸은 접어 둔다. 보드가 아직 없거나, QR 로 와서 코드가 채워졌거나, 기다리는 코드가 있으면 편다.
+    add_open = " open" if (not boards or prefill or waiting) else ""
     return (
         (f'<p class="notice">{notice}</p>' if notice else "")
         + "<h2>내 보드</h2>" + table
+        + f'<details class="add"{add_open}><summary>보드 추가</summary>'
         + '<form class="claim" method="post" action="/dashboard/claim">'
           '<input name="code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false"'
           f' placeholder="4J7K2P" aria-label="등록 코드" value="{prefill or ""}">'
@@ -276,6 +335,7 @@ def _boards_section(boards: list[dict], pending: list[dict], notice: str | None,
         + '<p class="note">보드 디스플레이의 QR을 찍거나 6자리 코드를 넣은 뒤, 보드의 RESET 버튼을 한 번'
           ' 누르세요.</p>'
         + (f'<ul class="waiting">{waiting}</ul>' if waiting else "")
+        + "</details>"
     )
 
 
@@ -284,6 +344,7 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
     # 보드별로 나눠야 하는 처리(_attach_awake)는 전체를 대상으로 한 뒤에 거른다.
     _drop_bad_battery(rows)
     _attach_awake(rows)
+    _attach_tz(rows)
     devices = _device_links(rows, mac)
     if mac:
         rows = [r for r in rows if r.get("mac") == mac]
@@ -292,7 +353,7 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
     # 보드 열은 여러 대를 섞어 볼 때만 둔다. 한 대만 볼 때는 모든 행이 같은 값이라 자리만 차지한다.
     mac_cell = (lambda r: "") if mac else (lambda r: f"<td>{_board(r.get('device_name'), r.get('mac'))}</td>")
     table = "".join(
-        f"<tr><td>{r['received_at'].replace('T', ' ').replace('+00:00', '')}</td>"
+        f"<tr><td>{_local(r):%Y-%m-%d %H:%M}<span class=\"dim\">{_local(r):%Z}</span></td>"
         f"{mac_cell(r)}"
         f"<td>{_cell(r.get('battery_mv'))}</td><td>{_cell(r.get('wifi_ms'))}</td>"
         f"<td>{_cell(r.get('rssi'))}</td><td>{rssi_label(r['rssi'])}</td>"
@@ -328,6 +389,7 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
         sub=" · ".join(bits),
         data=_plot_data(rows, mac, nvs_total),
         rssi_note=f"0에 가까울수록 신호가 셉니다. 맨 아래 점선보다 낮으면 '{_WEAKEST}'입니다.",
+        tz_note=f"시각은 날씨 위치의 현지 시각({rows[-1]['tz'] if rows else _DEFAULT_TZ})입니다.",
         table=table,
         logs=_logs(recent),
     )

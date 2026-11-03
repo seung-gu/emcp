@@ -24,7 +24,7 @@ REPORT_FIELDS = {
 }
 # 서버가 그 보고에 돌려준 날씨. 조회에 실패한 보고는 전부 비어 있다.
 WEATHER_FIELDS = ("city", "lat", "lon", "out_temp_c", "out_humidity", "out_temp_max_c",
-                  "out_temp_min_c", "weather_code", "wind_kmh", "pop")
+                  "out_temp_min_c", "weather_code", "wind_kmh", "pop", "timezone")
 # 온습도 센서 진단. 보고마다 오지만 문제를 볼 때만 쓰므로 sensor_logs 에 따로 둔다.
 SENSOR_FIELDS = {"room_err": str, "room_sda": bool, "room_scl": bool, "room_ack": str,
                  "room_stuck": bool}
@@ -175,6 +175,8 @@ MIGRATIONS = [
     " ADD COLUMN history_declined BOOLEAN NOT NULL DEFAULT false",
     "CREATE INDEX devices_mac ON devices (mac)",
     "ALTER TABLE claim_codes ADD COLUMN email TEXT",
+    # 그 보고 때 날씨를 받은 위치의 시간대(IANA 이름, 예: Europe/Berlin). 대시보드가 시각을 현지 시각으로 보여 준다.
+    "ALTER TABLE reports ADD COLUMN timezone TEXT",
 ]
 
 _migrated = False
