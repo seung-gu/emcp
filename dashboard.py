@@ -1,4 +1,4 @@
-"""/dashboard 페이지 렌더링. 마크업과 스타일은 dashboard.html 에 있다."""
+"""/dashboard 페이지를 만든다. 마크업과 스타일은 dashboard.html 에 있다."""
 
 from __future__ import annotations
 
@@ -11,13 +11,13 @@ from string import Template
 
 _TEMPLATE = Template((Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8"))
 
-# RSSI 구간. 기기의 rssiLevel() (display.cpp) 과 같은 경계를 쓴다.
+# RSSI 구간. 보드의 rssiLevel() (display.cpp) 과 같은 경계를 쓴다.
 RSSI_BANDS = ((-55, "강함"), (-65, "좋음"), (-75, "보통"), (-85, "약함"))
 _WEAKEST = "매우 약함"
 
 
-# esp_reset_reason() -> 사람이 읽을 이름. 8 이 타이머 웨이크, 곧 정상이다. 1 은 전원이
-# 끊겼다 들어왔다는 뜻이고 9 는 배터리가 처지고 있다는 신호, 4~7 은 펌웨어가 죽은 것이다.
+# esp_reset_reason() 값을 사람이 읽는 이름으로. 8 은 타이머로 깨어난 것이라 정상이다. 1 은 전원이
+# 끊겼다 다시 들어왔다는 뜻, 9 는 배터리가 약해지고 있다는 신호, 4~7 은 펌웨어가 죽은 것이다.
 RESET_KO = {
     0: "알수없음", 1: "전원투입", 2: "외부핀", 3: "SW재시작", 4: "패닉",
     5: "INT WDT", 6: "TASK WDT", 7: "WDT", 8: "딥슬립", 9: "브라운아웃", 10: "SDIO",
@@ -25,17 +25,18 @@ RESET_KO = {
 _NORMAL_RESET = 8
 
 LOG_KIND_KO = {
-    "wifi": "Wi-Fi 실패", "http": "서버 응답 실패", "portal-new": "최초 설정 포털",
-    "portal-lost": "네트워크 상실, 설정 포털", "portal-timeout": "포털 시간초과 → 무기한 대기",
-    "full": "로그 가득 참 (이후 기록 없음)", "unknown": "알수없음",
+    "wifi": "Wi-Fi 연결 실패", "http": "서버 응답 실패", "portal-new": "처음 설정 페이지 열림",
+    "portal-lost": "Wi-Fi를 못 찾아 설정 페이지 열림",
+    "portal-timeout": "설정 페이지 시간 초과, RESET을 누를 때까지 잠듦",
+    "full": "로그가 가득 참 (이후 기록 없음)", "unknown": "알 수 없음",
 }
 
 # wl_status_t. 이 경로에서 실제로 나올 수 있는 값만 적는다.
 WIFI_STATUS_KO = {0: "시작 못함", 1: "SSID 없음", 4: "인증 실패", 6: "연결 끊김"}
 
-# 기기가 가끔 2 mV 같은 값을 올린다. 리튬셀은 보호회로가 그전에 끊으므로 이 전압까지
-# 내려가지 않는다. 전압이 아니라 측정 실패로 보고 버린다. 파일에는 그대로 두고 화면에서만
-# 빼므로 기준을 바꾸면 지난 보고도 다시 판정된다.
+# 보드가 가끔 2 mV 같은 값을 보낸다. 리튬 셀은 그 전에 보호 회로가 끊어서 이 전압까지 내려가지
+# 않으니, 측정 실패로 보고 버린다. 저장된 값은 그대로 두고 화면에서만 빼므로, 기준을 바꾸면 지난
+# 보고도 다시 판정된다.
 _BATTERY_MIN_MV = 2000
 
 
@@ -51,22 +52,22 @@ def _hhmm(iso: str) -> str:
     return f"{t.month}/{t.day} {t.hour:02d}:{t.minute:02d}"
 
 
-# 그래프로 그리는 값. 그래프마다 자기 값이 있는 보고만 점으로 찍힌다.
+# 그래프로 그리는 값. 그래프마다 그 값이 있는 보고만 점으로 찍는다.
 _PLOTTED = ("battery_mv", "rssi", "awake_ms", "chip_c", "room_c", "room_rh", "nvs_used")
 
 
 def _plot_data(rows: list[dict], mac: str | None, nvs_total: int | None) -> str:
-    """그래프가 쓸 값을 열 단위 JSON 으로. 그리는 건 브라우저가 한다 — 구간을 끌어 고르고
-    확대·축소하려면 화면에서 다시 그려야 해서다.
+    """그래프에 쓸 값을 열 단위 JSON 으로 만든다. 그래프는 브라우저가 그린다. 구간을 끌어 고르고
+    확대·축소하려면 화면에서 다시 그려야 하기 때문이다.
 
-    시각은 epoch 초라 x축이 보고 순번이 아니라 실제 시각이다. 보고가 끊긴 구간은 빈 채로 보인다.
+    시각은 epoch 초라서 x축이 실제 시각을 따른다. 보고가 끊긴 구간은 비어 보인다.
     """
     data = {
         "t": [int(datetime.fromisoformat(r["received_at"]).timestamp()) for r in rows],
         "fw_version": [r.get("fw_version") for r in rows],
         "series": {k: [r.get(k) for r in rows] for k in _PLOTTED},
-        # 신호세기처럼 절대값에 의미가 있는 값은 축을 고정한다. 자동으로 맞추면 평평한 구간이
-        # 요동처럼 보인다.
+        # 신호 세기처럼 값 자체에 뜻이 있는 그래프는 축을 고정한다. 자동으로 맞추면 평평한 구간도
+        # 크게 출렁이는 것처럼 보인다.
         "fixed": {"rssi": [-100, -40]},
         "guides": {"rssi": [[g, name] for g, name in RSSI_BANDS]},
     }
@@ -94,8 +95,8 @@ def _board(name: str | None, mac: str | None) -> str:
 
 
 def _reset_cell(code) -> str:
-    """정상 웨이크(딥슬립)는 비워 둔다. 604줄이 전부 '딥슬립'이면 눈에 띄어야 할 나머지가
-    묻힌다 — 이 칸은 뭔가 다른 일이 있었다는 표시로만 쓴다."""
+    """딥슬립에서 정상으로 깨어난 경우는 비워 둔다. 거의 모든 행이 '딥슬립'이라 다 찍으면 정작 봐야
+    할 행이 묻힌다. 이 칸은 다른 일이 있었을 때만 채운다."""
     if code is None or code == _NORMAL_RESET:
         return ""
     return RESET_KO.get(code, f"코드 {code}")
@@ -105,12 +106,13 @@ ROOM_ERR_KO = {"probe": "주소무응답", "write": "명령거부", "read": "읽
 
 
 def _i2c_cell(r: dict) -> str:
-    """센서 읽기가 실패한 이유. _reset_cell 과 같은 이유로 정상이면 빈 칸이다 — 거의 모든
-    행이 정상이라 'ok' 를 전부 찍으면 드문 쪽이 묻힌다.
+    """센서 읽기가 실패한 이유. _reset_cell 과 같은 이유로 정상이면 비워 둔다. 거의 모든 행이
+    정상이라 'ok' 를 다 찍으면 드문 실패가 묻힌다.
 
-    진단 필드가 아예 없는 보고는 그걸 보낼 줄 모르는 펌웨어라, 정상과 구분해 물음표로 둔다.
-    끊김 표시(SDA↓/SCL↓)는 모듈 풀업이 내부 풀다운에 졌다는 뜻 — 선이 끊겼거나 모듈에
-    전원이 없다. 성공한 행에 이게 뜨면 풀업이 45k 보다 약한 거라 그 표시 자체가 무의미하다."""
+    진단 값이 아예 없는 보고는 그 값을 보낼 줄 모르는 펌웨어의 보고라서, 정상과 구분해 물음표로
+    둔다. 끊김 표시(SDA↓/SCL↓)는 모듈의 풀업이 내부 풀다운에 졌다는 뜻이다. 선이 끊겼거나
+    모듈에 전원이 없는 경우다. 성공한 행에 이 표시가 뜨면 풀업이 45k 보다 약한 것이라 표시를
+    무시해도 된다."""
     if r.get("room_err") is None and r.get("room_stuck") is None:
         return '<span class="dim">?</span>'
     bits = []
@@ -128,7 +130,7 @@ def _i2c_cell(r: dict) -> str:
 
 
 def _log_entry(e: dict) -> str:
-    """로그 한 줄. 종류마다 실려 오는 필드가 다르므로 있는 것만 뒤에 붙인다."""
+    """로그 한 줄. 종류마다 실려 오는 값이 달라서 있는 것만 뒤에 붙인다."""
     bits = []
     if (c := e.get("http_code")) is not None:
         bits.append(f"코드 {c}")
@@ -144,10 +146,10 @@ def _log_entry(e: dict) -> str:
 
 
 def _logs(recent: list[dict]) -> str:
-    """보내지 못했던 보고들. 기기에 시계가 없어 항목마다 시각이 없으므로, 이것들을 데려온
-    보고의 도착 시각 아래에 순서대로 묶는다."""
+    """보내지 못했던 보고들. 보드에 시계가 없어 항목마다 시각이 없으므로, 이것들을 싣고 온 보고의
+    도착 시각 아래에 순서대로 묶는다."""
     blocks = [
-        f'<div class="logs"><b>{_hhmm(r["received_at"])}</b> 보고가 뒤늦게 데려온 {len(r["log"])}건'
+        f'<div class="logs"><b>{_hhmm(r["received_at"])}</b> 보고에 실려 온 {len(r["log"])}건'
         f'<ol>{"".join(_log_entry(e) for e in r["log"])}</ol></div>'
         for r in recent if r.get("log")
     ]
@@ -155,11 +157,11 @@ def _logs(recent: list[dict]) -> str:
 
 
 def _drop_bad_battery(rows: list[dict]) -> None:
-    """측정 실패로 보이는 배터리 값을 지운다. 값이 아예 없는 보고와 같아져서 그래프에서는
-    빠지고 표에서는 빈 칸이 된다.
+    """측정 실패로 보이는 배터리 값을 지운다. 그러면 값이 없는 보고와 같아져서 그래프에서는 빠지고
+    표에서는 빈칸이 된다.
 
-    그래프는 자동 스케일이라 2 mV 한 건이 축 아래끝을 거기까지 내린다. 그러면 나머지
-    3000 mV 대가 전부 맨 위에 눌린 직선이 된다."""
+    그래프는 축을 자동으로 맞추기 때문에, 2 mV 한 건이 있으면 축 아래 끝이 거기까지 내려간다.
+    그러면 나머지 3000 mV 대 값이 전부 맨 위에 눌려 직선처럼 보인다."""
     for row in rows:
         for holder in (row, *(row.get("log") or ())):
             if (v := holder.get("battery_mv")) is not None and v < _BATTERY_MIN_MV:
@@ -167,19 +169,18 @@ def _drop_bad_battery(rows: list[dict]) -> None:
 
 
 def _attach_awake(rows: list[dict]) -> None:
-    """기기가 보내는 prev_awake_ms 는 그 보고가 아니라 **그 앞** wake 를 잰 값이다. 자기 wake
-    는 화면까지 그린 뒤에야 끝나는데 보고는 그전에 떠나서 그렇다. 한 칸 당겨서 실제로 잰 행에
-    붙인다.
+    """보드가 보내는 prev_awake_ms 는 그 보고 직전 wake 를 잰 값이다. 한 번 깨어난 시간은 화면을
+    다 그린 뒤에야 끝나는데, 보고는 그전에 보내기 때문이다. 그래서 한 칸 당겨 실제로 잰 행에 붙인다.
 
-    wifi_attempts 가 1 일 때만 옮긴다. 1 보다 크면 그 사이에 서버까지 못 간 wake 가 있었다는
-    뜻이고, 그러면 값은 앞 행이 아니라 그 실패한 wake 를 잰 것이다. 가장 최근 보고는 아직
-    다음 보고가 없으므로 자기 wake 시간을 모른 채로 남는다.
+    wifi_attempts 가 1 일 때만 옮긴다. 1 보다 크면 그 사이에 서버에 닿지 못한 wake 가 있었다는
+    뜻이고, 그러면 그 값은 앞 행의 wake 가 아닌 실패한 wake 를 잰 것이다. 가장 최근 보고는 다음
+    보고가 아직 없어서 자기 wake 시간을 모른 채로 남는다.
 
     0 은 버린다. NVS 가 비어 있던 첫 부팅이 기본값으로 보낸 값이고, 옛 보고에 남아 있다.
 
-    기기별로 묶고 나서 당긴다. 여러 대가 한 파일에 섞이면 바로 다음 행은 다른 기기의 보고라,
-    그냥 당기면 남의 wake 시간을 가져다 붙인다. mac 이 없는 옛 보고는 한 덩어리로 묶이는데,
-    그 구간에 두 대가 섞여 있었다면 그 값들은 바로잡을 방법이 없다."""
+    보드별로 묶은 뒤에 당긴다. 여러 대가 섞여 있으면 바로 다음 행이 다른 보드의 보고라, 그냥
+    당기면 남의 wake 시간을 붙이게 된다. mac 이 없는 옛 보고는 한 묶음으로 처리하는데, 그 구간에
+    두 대가 섞여 있었다면 그 값은 바로잡을 수 없다."""
     by_mac: dict = {}
     for r in rows:
         by_mac.setdefault(r.get("mac"), []).append(r)
@@ -190,11 +191,11 @@ def _attach_awake(rows: list[dict]) -> None:
 
 
 def _attach_nvs(rows: list[dict]) -> int | None:
-    """남은 칸을 쓴 칸으로 뒤집는다. 차오르는 그림이 "채워지고 있나"를 묻기에 자연스럽고,
-    축을 0~전체로 고정하면 여유가 얼마나 남았는지가 선의 높이로 바로 보인다.
+    """남은 칸 수를 쓴 칸 수로 바꾼다. 차오르는 그래프가 "채워지고 있나"를 보기에 자연스럽고,
+    축을 0부터 전체 칸 수까지 고정하면 여유가 얼마나 남았는지 선의 높이로 바로 보인다.
 
-    전체 칸수는 기기마다 고정이라, 한 번이라도 실려 온 값을 나머지 행에도 쓴다 — 이 필드가
-    생기기 전의 보고에는 남은 칸만 있다."""
+    전체 칸 수는 보드마다 고정이라, 한 번이라도 실려 온 값을 나머지 행에도 쓴다. 이 값을 보내기
+    전의 보고에는 남은 칸 수만 있다."""
     total = next((r["nvs_total"] for r in reversed(rows) if r.get("nvs_total")), None)
     if total:
         for r in rows:
@@ -204,7 +205,7 @@ def _attach_nvs(rows: list[dict]) -> int | None:
 
 
 def _device_links(rows: list[dict], mac: str | None) -> str:
-    """보고를 보낸 적 있는 기기 목록. 섞여 있을 때 한 대만 떼어 보는 입구다."""
+    """보고를 보낸 적 있는 보드 목록. 여러 대가 섞여 있을 때 한 대만 골라 보는 버튼이다."""
     seen = {}
     for r in rows:
         if r.get("mac"):
@@ -219,7 +220,7 @@ def _device_links(rows: list[dict], mac: str | None) -> str:
 
 
 def render(rows: list[dict], mac: str | None = None) -> str:
-    # 기기별로 갈라야 하는 것(_attach_awake)은 전체를 보고 처리한 뒤에 거른다.
+    # 보드별로 나눠야 하는 처리(_attach_awake)는 전체를 대상으로 한 뒤에 거른다.
     _drop_bad_battery(rows)
     _attach_awake(rows)
     devices = _device_links(rows, mac)
@@ -227,7 +228,7 @@ def render(rows: list[dict], mac: str | None = None) -> str:
         rows = [r for r in rows if r.get("mac") == mac]
     nvs_total = _attach_nvs(rows)
     recent = rows[-50:][::-1]
-    # mac 열은 섞어서 볼 때만. 한 대만 보는 중이면 모든 행이 같은 값이라 자리만 차지한다.
+    # 보드 열은 여러 대를 섞어 볼 때만 둔다. 한 대만 볼 때는 모든 행이 같은 값이라 자리만 차지한다.
     mac_cell = (lambda r: "") if mac else (lambda r: f"<td>{_board(r.get('device_name'), r.get('mac'))}</td>")
     table = "".join(
         f"<tr><td>{r['received_at'].replace('T', ' ').replace('+00:00', '')}</td>"
@@ -244,14 +245,14 @@ def render(rows: list[dict], mac: str | None = None) -> str:
     ) or f'<tr><td colspan="{12 if mac else 13}" class="empty">아직 보고가 없습니다.</td></tr>'
 
     last = rows[-1] if rows else {}
-    bits = [f"보고 {len(rows)}건" + ("" if mac else " (전체 기기)")]
+    bits = [f"보고 {len(rows)}건" + ("" if mac else " (전체 보드)")]
     if last.get("fw_version"):
         bits.append(f"펌웨어 {last['fw_version']}")
     if (free := last.get("nvs_free")) is not None:
         total = last.get("nvs_total")
         bits.append(f"NVS {free}/{total} 엔트리 남음" if total else f"NVS {free}엔트리 남음")
-    # 진단을 보내는 펌웨어의 보고만 모아 실패 이유를 센다. 분모가 전체가 아닌 건 그 전
-    # 보고들에는 필드가 아예 없어서다 — 거기서는 실패를 이유별로 가를 수 없다.
+    # 진단 값을 보내는 펌웨어의 보고만 모아 실패 이유를 센다. 전체 보고 수로 나누지 않는 건 그 전
+    # 보고에는 진단 값이 아예 없어서 이유별로 나눌 수 없기 때문이다.
     knows = [r for r in rows if r.get("room_err")]
     if knows:
         tally = Counter(r["room_err"] for r in knows if r["room_err"] != "ok")
@@ -261,10 +262,10 @@ def render(rows: list[dict], mac: str | None = None) -> str:
 
     return _TEMPLATE.substitute(
         devices=devices,
-        mac_th="" if mac else "<th>기기</th>",
+        mac_th="" if mac else "<th>보드</th>",
         sub=" · ".join(bits),
         data=_plot_data(rows, mac, nvs_total),
-        rssi_note=f"0 에 가까울수록 세다. 맨 아래 점선보다 낮으면 {_WEAKEST}.",
+        rssi_note=f"0에 가까울수록 신호가 셉니다. 맨 아래 점선보다 낮으면 '{_WEAKEST}'입니다.",
         table=table,
         logs=_logs(recent),
     )
