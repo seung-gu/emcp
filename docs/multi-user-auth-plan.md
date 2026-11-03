@@ -2,18 +2,16 @@
 
 # The work, in order
 
-The design is in [multi-user-auth.md](multi-user-auth.md). These are in dependency order, each cut
-small enough to ship on its own.
+The design is in [multi-user-auth.md](multi-user-auth.md). The tickets below are in dependency
+order, and each is small enough to ship on its own.
 
 The first three are worth having whether or not OAuth ever lands, so nothing is wasted if the rest
 slips.
 
----
-
 ## 1. Put the device ID on the report
 
 **Why** `reports.jsonl` has nothing saying which device sent a row. Without it there is nothing to
-filter "only mine" against. It is a prerequisite for everything below, even with one device.
+filter "only mine" against, so everything below needs it first, even with one device.
 
 **Scope**
 - Firmware: add `mac` to `wakeReport()` (`WiFi.macAddress()`)
@@ -24,25 +22,21 @@ filter "only mine" against. It is a prerequisite for everything below, even with
 
 **Depends on** nothing
 
----
-
 ## 2. Move to SQLite
 
 **Why** Once reads filter by device and by user, reading the whole file and filtering in Python
-each time stops making sense. And there are ten tables coming.
+each time stops making sense. There are also ten tables coming.
 
 **Scope**
 - A `reports` table (`mac, at, battery_mv, wifi_ms, rssi, reset_reason, wifi_attempts, chip_c, prev_awake_ms, nvs_free, nvs_total, fw`)
 - `log` as its own table or a JSON column
-- Replace `_append_report` / `_read_reports` with SQL — nothing else sees anything but a list
+- Replace `_append_report` / `_read_reports` with SQL. Nothing else sees anything but a list
 - A one-time script to move `reports.jsonl` off the volume
 - Keep `data/seed-reports.jsonl` as the record
 
 **Done when** the dashboard looks the same as before and the row count survives a redeploy.
 
 **Depends on** 1
-
----
 
 ## 3. Google sign-in and sessions
 
@@ -59,13 +53,11 @@ later, so it comes first.
 
 **Done when** `/dashboard` is unreachable signed out and unchanged signed in.
 
-**Depends on** nothing — can run alongside 2
-
----
+**Depends on** nothing (can run alongside 2)
 
 ## 4. An OAuth server on MCP
 
-**Why** It is what lets Claude act for a user. It also closes the hole `/mcp` has been sitting on.
+**Why** It lets Claude act for a user, and it closes the hole `/mcp` has had so far.
 
 **Scope**
 - `oauth_clients` · `auth_codes` · `access_tokens` · `refresh_tokens`
@@ -79,10 +71,8 @@ Google sign-in and then works.
 
 **Depends on** 3
 
-**Note** This is the biggest ticket. Split it into (a) metadata and registration, (b) authorize and
-token, (c) verification and revocation if it needs to be smaller.
-
----
+**Note** This is the biggest ticket. If it needs to be smaller, split it into (a) metadata and
+registration, (b) authorize and token, (c) verification and revocation.
 
 ## 5. Device tokens and pending registrations
 
@@ -100,11 +90,9 @@ reports are untouched.
 
 **Depends on** 1, 2
 
----
-
 ## 6. Show the claim code on the screen
 
-**Why** So only someone who can see the device can claim it.
+**Why** Only someone who can see the device should be able to claim it.
 
 **Scope**
 - Firmware: draw the code on the e-Paper while unclaimed
@@ -115,49 +103,41 @@ reports are untouched.
 
 **Depends on** 5
 
----
-
 ## 7. Ownership and the access filter
 
-**Why** This is where "only I see my device" starts actually being true.
+**Why** This is the ticket where "only I see my device" actually starts working.
 
 **Scope**
 - `device_access` (`mac, user_id, role`)
 - `claim_device(user_id, code)`, called by both the MCP tool and the dashboard form
-- `devices_for(user_id)` — every read goes through it
+- `devices_for(user_id)`, which every read goes through
 - Remove every query written directly in a handler
 
 **Done when** only claimed devices appear, and someone else's MAC in the URL returns 404.
 
 **Depends on** 4, 5
 
----
-
 ## 8. Split the dashboard per device
 
 **Scope**
-- `/dashboard` — my devices, last seen, the claim-code form
-- `/dashboard/<mac>` — today's charts and table; 404 if the access check fails
+- `/dashboard`: my devices, last seen, the claim-code form
+- `/dashboard/<mac>`: today's charts and table, or 404 if the access check fails
 - Chart and table code in `dashboard.py` stays as it is; `rows` arrives filtered
 
 **Done when** two devices show separately and never mix.
 
 **Depends on** 7
 
----
-
 ## 9. Sharing and admin
 
 **Scope**
 - `share_device(mac, email)` / `unshare_device(mac, email)`, from both MCP and the dashboard
 - An address with no account leaves a pending row that attaches on first sign-in
-- `users.is_admin` — a view of counts and health that never reads report contents
+- `users.is_admin`: a view of counts and health that never reads report contents
 
 **Done when** someone shared with sees the device, and loses it the moment it is unshared.
 
 **Depends on** 7
-
----
 
 ## 10. Query the data through MCP
 
@@ -167,18 +147,16 @@ actual questions get asked of Claude.
 **Scope**
 - `get_reports(mac, since)`, through `devices_for`
 - `list_devices()`
-- Move `_location` off the global and onto the device — today everyone shares one city
+- Move `_location` off the global and onto the device. Today everyone shares one city
 
 **Done when** asking Claude something like "how many brownouts last week" answers from your own
 devices.
 
 **Depends on** 7
 
----
-
 ## What does not have to wait
 
-- **3** can run alongside 1 and 2
-- **10** can come any time after 7, and it is the closest thing here to the original point of the
-  project
-- **9** can wait indefinitely — there is nothing to share while one person is using this
+- Ticket 3 can run alongside 1 and 2.
+- Ticket 10 can come any time after 7, and it is the closest thing here to the original point of
+  the project.
+- Ticket 9 can wait indefinitely. There is nothing to share while one person is using this.
