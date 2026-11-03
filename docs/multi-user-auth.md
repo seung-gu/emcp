@@ -2,6 +2,8 @@
 
 # Serving more than one person: accounts, devices, access
 
+An older design, kept for history. Where it differs from the current design, [multi-user-rollout.ko.md](multi-user-rollout.ko.md) (Korean) applies.
+
 Right now the server is open to anyone. `/mcp` answers 200 with no credentials, and its tools
 include writes such as `set_weather_location` and `turn_on_led`. Anyone who has the URL can read
 `/dashboard`. Reports pile into one `reports.jsonl`, and nothing in it says which device sent
@@ -145,7 +147,7 @@ reach.
 Do not derive the code from the MAC. If anyone can compute it, having to see the screen stops
 meaning anything; if it takes a server secret to compute, it is a random code with extra steps.
 
-### Pending rows are keyed by code, not by MAC
+### Why pending rows are keyed by code
 
 One `devices` row per MAC means whoever registers first takes the slot, and someone could park on
 a MAC to keep the real device out.

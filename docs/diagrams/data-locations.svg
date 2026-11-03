@@ -38,9 +38,9 @@
         <text x="300" y="308" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">날씨 응답</text>
         <rect x="344" y="128" width="104" height="16" rx="2" fill="#f5f5f5"/>
         <text x="396" y="140" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">좌표로 날씨 조회</text>
-        <rect x="580" y="112" width="80" height="32" rx="2" fill="#f5f5f5"/>
-        <text x="620" y="124" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">번호표 교환,</text>
-        <text x="620" y="140" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">서명 확인 키</text>
+        <rect x="580" y="112" width="104" height="32" rx="2" fill="#f5f5f5"/>
+        <text x="632" y="124" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">로그인, 서명 키,</text>
+        <text x="632" y="140" fill="#4f5d75" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">계정 확인</text>
         <rect x="356" y="440" width="92" height="16" rx="2" fill="#f5f5f5"/>
         <text x="402" y="452" fill="#bf4520" font-size="12" font-weight="500" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">1시간마다 옮김</text>
         <rect x="548" y="440" width="132" height="16" rx="2" fill="#f5f5f5"/>
@@ -76,7 +76,7 @@
         <rect x="400" y="228" width="196" height="52" rx="6" fill="#f5f5f5"/>
         <rect x="400" y="228" width="196" height="52" rx="6" fill="#2d3142" stroke="#4f5d75" stroke-width="1" fill-opacity="0.05"/>
         <text x="412" y="249" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">메모리</text>
-        <text x="412" y="268" fill="#4f5d75" font-size="12" font-weight="400" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">보드별 위치 사본</text>
+        <text x="412" y="268" fill="#4f5d75" font-size="12" font-weight="400" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">보드 사본 (토큰 해시, 위치)</text>
         <rect x="400" y="288" width="196" height="52" rx="6" fill="#f5f5f5"/>
         <rect x="400" y="288" width="196" height="52" rx="6" fill="#2d3142" stroke="#4f5d75" stroke-width="1" fill-opacity="0.05"/>
         <text x="412" y="309" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif">비밀값</text>
@@ -93,7 +93,8 @@
         <!-- Neon (focal) -->
         <rect x="384" y="488" width="228" height="56" rx="6" fill="#f5f5f5"/>
         <rect x="384" y="488" width="228" height="56" rx="6" fill="#bf4520" stroke="#bf4520" stroke-width="1" fill-opacity="0.08"/>
-        <text x="498" y="520" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">Neon DB</text>
+        <text x="498" y="512" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">Neon DB</text>
+        <text x="498" y="530" fill="#4f5d75" font-size="12" font-weight="400" font-family="'Geist', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" text-anchor="middle">보드, 보고, 공유, 등록 코드</text>
         <!-- legend strip -->
         <line x1="40" y1="576" x2="920" y2="576" stroke="#2d3142" stroke-width="0.8" stroke-opacity="0.10"/>
         <line x1="40" y1="600" x2="68" y2="600" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#data-locations-arrow)"/>
