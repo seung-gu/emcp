@@ -37,8 +37,9 @@ from mcp.server.fastmcp import FastMCP
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
+import auth
 import dashboard
 import db
 
@@ -165,7 +166,14 @@ def _set_led(on: bool) -> None:
 
 # Fly.io 는 PORT 환경변수로 내부 포트를 넘겨준다. 없으면 8080.
 _port = int(os.environ.get("PORT", "8080"))
-mcp = FastMCP("LED Controller", host="0.0.0.0", port=_port)
+# stateless_http: 요청마다 그 요청의 토큰으로 사용자를 정한다. 세션을 이어 쓰면 도구가 세션을 처음 연
+# 사람으로 실행될 수 있다 (docs/multi-user-rollout.ko.md 2단계).
+mcp = FastMCP("LED Controller", host="0.0.0.0", port=_port, stateless_http=True,
+              **auth.fastmcp_options())
+
+# 로그인 쿠키. HttpOnly: 페이지 스크립트가 못 읽는다. Secure: https 에서만 (로컬 http 는 예외).
+# SameSite=Lax: 다른 사이트에서 보낸 POST 에는 실리지 않는다.
+_COOKIE = {"httponly": True, "secure": auth.PUBLIC_URL.startswith("https://"), "samesite": "lax"}
 
 
 # --- MCP 도구 (Claude/ChatGPT 가 호출) -----------------------------------------
@@ -367,16 +375,52 @@ async def weather_report(request: Request) -> JSONResponse:
 
     return JSONResponse(body, status_code=status, background=_flush_if_due())
 
-@mcp.custom_route("/dashboard", methods=["GET"])
-async def dashboard_page(request: Request) -> HTMLResponse:
-    """기기가 보내온 보고를 훑어보는 페이지.
+@mcp.custom_route("/auth/login", methods=["GET"])
+async def login(request: Request) -> RedirectResponse:
+    """WorkOS 로그인 화면으로 보낸다. 로그인이 끝나면 WorkOS 가 브라우저를 /auth/callback 으로 돌려보낸다."""
+    url, started = auth.start_sign_in()
+    response = RedirectResponse(url)
+    # state 와 PKCE 검증값은 브라우저가 돌아올 때까지 봉인한 쿠키에 맡겨 둔다
+    response.set_cookie("emcp_login", started, max_age=600, **_COOKIE)
+    return response
 
-    ?mac=... 을 주면 그 기기만. 안 주면 전부 섞어서 보여주고 표에 mac 열이 붙는다.
+
+@mcp.custom_route("/auth/callback", methods=["GET"])
+async def callback(request: Request):
+    try:
+        session = await run_in_threadpool(
+            auth.finish_sign_in,
+            request.cookies.get("emcp_login", ""),
+            request.query_params.get("code"),
+            request.query_params.get("state"),
+        )
+    except auth.SignInError as e:
+        return HTMLResponse(str(e), status_code=403)
+    response = RedirectResponse("/dashboard")
+    response.set_cookie("emcp_session", session, max_age=auth.SIGN_IN_HOURS * 3600, **_COOKIE)
+    response.delete_cookie("emcp_login")
+    return response
+
+
+@mcp.custom_route("/", methods=["GET"])
+async def root(request: Request) -> RedirectResponse:
+    return RedirectResponse("/dashboard")
+
+
+@mcp.custom_route("/dashboard", methods=["GET"])
+async def dashboard_page(request: Request):
+    """로그인한 사람이 볼 수 있는 보드의 보고를 훑어보는 페이지.
+
+    ?mac=... 을 주면 그 기기만. 안 주면 전부 섞어서 보여주고 표에 mac 열이 붙는다. 남의 MAC 을 넣으면
+    보고가 없는 빈 화면이 나온다 — 그 보드가 있는지조차 알려 주지 않는다.
     아직 Neon 으로 옮기지 않은 보고를 먼저 옮긴 뒤 읽는다. 그래야 방금 들어온 보고까지 보인다.
     """
+    user = auth.session_user(request.cookies.get("emcp_session", ""))
+    if not user:
+        return RedirectResponse("/auth/login")
     _seal_buffer()
     await run_in_threadpool(_flush_sealed)
-    rows = await run_in_threadpool(db.read_reports)
+    rows = await run_in_threadpool(db.read_reports, user)
     return HTMLResponse(dashboard.render(rows, _tag(request.query_params.get("mac"))))
 
 

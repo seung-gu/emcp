@@ -132,6 +132,16 @@ MIGRATIONS = [
            r.room_c, r.room_rh
     FROM reports r JOIN devices d ON d.id = r.device_id
     """,
+    # 2단계: 누가 어떤 보드를 보는지. 보드 하나를 여러 사람이 공유할 수 있어서 devices 와 따로 둔다.
+    """
+    CREATE TABLE device_access (
+        device_id BIGINT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+        user_id   TEXT NOT NULL,   -- WorkOS 사용자 ID
+        role      TEXT NOT NULL CHECK (role IN ('owner', 'viewer')),
+        PRIMARY KEY (device_id, user_id)
+    )
+    """,
+    "CREATE INDEX device_access_user ON device_access (user_id)",
 ]
 
 _migrated = False
@@ -271,9 +281,16 @@ def _new_entries(row: dict, before: list) -> list:
     return [e for e in entries if not (e.get("kind") == "http" and e.get("http_code") == 500)]
 
 
-def read_reports() -> list[dict]:
-    """모든 보고를 받은 시각 순으로, 대시보드가 그리는 모양으로. 비어 있는 칸은 키째 빠진다 —
-    옛 파일의 한 줄과 같은 모양이라 dashboard.py 가 둘을 구분하지 않아도 된다."""
+def devices_for(conn: psycopg.Connection, user_id: str) -> list[int]:
+    """이 사람이 볼 수 있는 보드 (주인이거나 공유받은 것). 사람이 보고를 읽는 조회는 모두 이걸 거친다 —
+    조건을 핸들러마다 따로 쓰면 하나만 빠뜨려도 에러 없이 남의 데이터가 나간다."""
+    rows = conn.execute("SELECT device_id FROM device_access WHERE user_id = %s", (user_id,)).fetchall()
+    return [r["device_id"] for r in rows]
+
+
+def read_reports(user_id: str) -> list[dict]:
+    """이 사람이 볼 수 있는 보드의 보고를 받은 시각 순으로, 대시보드가 그리는 모양으로. 비어 있는 칸은
+    키째 빠진다 — 옛 파일의 한 줄과 같은 모양이라 dashboard.py 가 둘을 구분하지 않아도 된다."""
     sensor_cols = ", ".join(f"s.{k}" for k in SENSOR_FIELDS)
     with _connect() as conn:
         rows = conn.execute(
@@ -282,7 +299,9 @@ def read_reports() -> list[dict]:
             "     FROM wake_logs w WHERE w.report_id = r.id) AS log"
             " FROM reports r JOIN devices d ON d.id = r.device_id"
             " LEFT JOIN sensor_logs s ON s.report_id = r.id"
-            " ORDER BY r.received_at, r.id"
+            " WHERE r.device_id = ANY(%s)"
+            " ORDER BY r.received_at, r.id",
+            (devices_for(conn, user_id),),
         ).fetchall()
     out = []
     for r in rows:
