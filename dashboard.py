@@ -61,8 +61,8 @@ def _plot_data(rows: list[dict], mac: str | None, nvs_total: int | None) -> str:
     시각은 epoch 초라 x축이 보고 순번이 아니라 실제 시각이다. 보고가 끊긴 구간은 빈 채로 보인다.
     """
     data = {
-        "t": [int(datetime.fromisoformat(r["at"]).timestamp()) for r in rows],
-        "fw": [r.get("fw") for r in rows],
+        "t": [int(datetime.fromisoformat(r["received_at"]).timestamp()) for r in rows],
+        "fw_version": [r.get("fw_version") for r in rows],
         "series": {k: [r.get(k) for r in rows] for k in _PLOTTED},
         # 신호세기처럼 절대값에 의미가 있는 값은 축을 고정한다. 자동으로 맞추면 평평한 구간이
         # 요동처럼 보인다.
@@ -135,7 +135,7 @@ def _logs(recent: list[dict]) -> str:
     """보내지 못했던 보고들. 기기에 시계가 없어 항목마다 시각이 없으므로, 이것들을 데려온
     보고의 도착 시각 아래에 순서대로 묶는다."""
     blocks = [
-        f'<div class="logs"><b>{_hhmm(r["at"])}</b> 보고가 뒤늦게 데려온 {len(r["log"])}건'
+        f'<div class="logs"><b>{_hhmm(r["received_at"])}</b> 보고가 뒤늦게 데려온 {len(r["log"])}건'
         f'<ol>{"".join(_log_entry(e) for e in r["log"])}</ol></div>'
         for r in recent if r.get("log")
     ]
@@ -196,7 +196,7 @@ def _device_links(rows: list[dict], mac: str | None) -> str:
     seen = {}
     for r in rows:
         if r.get("mac"):
-            seen[r["mac"]] = r["at"]
+            seen[r["mac"]] = r["received_at"]
     if not seen:
         return ""
     links = [f'<a href="/dashboard"{" class=\'on\'" if not mac else ""}>전체</a>']
@@ -218,7 +218,7 @@ def render(rows: list[dict], mac: str | None = None) -> str:
     # mac 열은 섞어서 볼 때만. 한 대만 보는 중이면 모든 행이 같은 값이라 자리만 차지한다.
     mac_cell = (lambda r: "") if mac else (lambda r: f"<td>{_cell(r.get('mac'))}</td>")
     table = "".join(
-        f"<tr><td>{r['at'].replace('T', ' ').replace('+00:00', '')}</td>"
+        f"<tr><td>{r['received_at'].replace('T', ' ').replace('+00:00', '')}</td>"
         f"{mac_cell(r)}"
         f"<td>{_cell(r.get('battery_mv'))}</td><td>{_cell(r.get('wifi_ms'))}</td>"
         f"<td>{_cell(r.get('rssi'))}</td><td>{rssi_label(r['rssi'])}</td>"
@@ -233,8 +233,8 @@ def render(rows: list[dict], mac: str | None = None) -> str:
 
     last = rows[-1] if rows else {}
     bits = [f"보고 {len(rows)}건" + ("" if mac else " (전체 기기)")]
-    if last.get("fw"):
-        bits.append(f"펌웨어 {last['fw']}")
+    if last.get("fw_version"):
+        bits.append(f"펌웨어 {last['fw_version']}")
     if (free := last.get("nvs_free")) is not None:
         total = last.get("nvs_total")
         bits.append(f"NVS {free}/{total} 엔트리 남음" if total else f"NVS {free}엔트리 남음")

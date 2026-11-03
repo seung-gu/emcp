@@ -79,9 +79,16 @@ curl 로 볼 때만 보인다.
 
 ## 로컬 실행
 
+보고는 Neon Postgres 에 저장한다. 작업 디렉터리의 `.env` 에 접속 주소를 넣어 둔다
+(`.env` 는 gitignore 됨):
+
+```text
+DATABASE_URL=postgresql://...
+```
+
 ```bash
 uv sync
-uv run python server.py        # 기본 포트 8080, PORT 환경변수로 변경 가능
+uv run --env-file .env python server.py   # 기본 포트 8080, PORT 환경변수로 변경 가능
 ```
 
 확인:
@@ -94,28 +101,41 @@ curl -s http://127.0.0.1:8080/weather | jq   # 날씨 JSON
 
 ## Fly.io 배포
 
-보고를 담아 둘 볼륨이 먼저 있어야 한다. `fly.toml` 의 `[mounts] source` 와 이름이
-같아야 하고, 한 번만 만들면 된다:
+아직 Neon 으로 옮기지 않은 보고를 담아 둘 볼륨과 DB 접속 주소가 먼저 있어야 한다. 볼륨은
+`fly.toml` 의 `[mounts] source` 와 이름이 같아야 하고, 둘 다 한 번만 하면 된다:
 
 ```bash
 fly volumes create reports --size 1 --region fra
-fly deploy
+grep '^DATABASE_URL=' .env | fly secrets import    # 값이 화면에 찍히지 않는다
+fly deploy --ha=false
 ```
+
+보드들이 아직 옛 주소(`emcp-led.fly.dev`)로 보고하므로, 보드를 다시 플래싱할 때까지는 옛 앱에도
+같은 코드를 올린다: `fly deploy --ha=false -a emcp-led`.
 
 - MCP 엔드포인트: `https://<app>.fly.dev/mcp`
 - ESP32 polling: `https://<app>.fly.dev/led`, `https://<app>.fly.dev/weather`
 
 ## 보고 보관
 
-`REPORTS_FILE` 이 가리키는 파일에 한 줄에 한 건씩 덧붙이고, 대시보드를 열 때 읽는다.
-서버는 보고를 메모리에 들고 있지 않는다. 버리는 코드도 없다 — 30분에 한 건이라 1년이
-1MB 도 안 된다. 로컬 실행은 작업 디렉터리의 `reports.jsonl` 을 쓴다 (gitignore 됨).
+보고는 먼저 `REPORTS_BUFFER` 가 가리키는 파일에 한 줄씩 쌓이고, 한 시간에 한 번 Neon 으로
+옮겨진다. 대시보드를 열면 남은 보고를 먼저 옮긴 뒤 Neon 에서 읽는다. 보고마다 DB 에 쓰지
+않는 건 Neon 무료 한도 때문이다. 테이블 구조는 [docs/data-structure.ko.md](docs/data-structure.ko.md)
+에 있다. 로컬 실행은 작업 디렉터리의 `pending-reports.jsonl` 을 쓴다 (gitignore 됨).
+
+볼륨에 파일로 쌓던 때의 기록(`/data/reports.jsonl`)은 한 번 옮긴다. 다시 돌려도 이미 들어간
+보고는 건너뛴다:
+
+```bash
+fly ssh sftp get /data/reports.jsonl reports.jsonl -a emcp-led
+uv run --env-file .env python -m scripts.import_reports reports.jsonl
+```
 
 `data/` 에는 볼륨을 붙이기 전, 대시보드 HTML 에서 되살린 기록이 있다:
 
 | 파일 | 내용 |
 |------|------|
-| `seed-reports.jsonl` | 9/11~9/16 의 604건. 볼륨에 올려 두면 이어서 쌓인다 |
+| `seed-reports.jsonl` | 9/11~9/16 의 604건. 볼륨의 `reports.jsonl` 앞부분에 이미 들어 있다 |
 | `reports-thru-2026-09-16.csv` | 같은 데이터를 표로 본 것 |
 
 표에 실린 마지막 50건은 시각과 `wifi_ms` 까지 그대로고, 앞의 554건은 차트 polyline 에서
@@ -124,12 +144,6 @@ fly deploy
 없어서, 아는 세 지점(양 끝과 가운데 눈금) 사이를 선형으로 채우고 `"at_estimated": true`
 를 달아 두었다. 보고 간격이 고르지 않으므로(재시도와 벤치 테스트가 섞여 있다) 그 시각은
 순서를 세우는 용도지 믿을 값이 아니다. 차트는 x를 위치로만 쓰므로 모양은 원본 그대로다.
-
-시드를 볼륨에 올리려면:
-
-```bash
-fly ssh sftp shell -a emcp-led      # put data/seed-reports.jsonl /data/reports.jsonl
-```
 
 ## 상태에 대한 주의
 

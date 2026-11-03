@@ -25,16 +25,22 @@ flag 와 위치는 프로세스 메모리에만 존재하는 휘발성 상태다
 
 from __future__ import annotations
 
+import glob
 import json
 import os
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 import dashboard
+import db
 
 # --- 공유 상태 (휘발성, in-memory) ---------------------------------------------
 # GIL 덕분에 단일 bool 의 읽기/쓰기는 원자적이라 별도 락이 필요 없다.
@@ -43,29 +49,63 @@ _led_on = False
 # 날씨를 조회할 위치. 기본값은 뮌헨이고 MCP 도구로 바꾼다.
 _location = {"name": "뮌헨", "lat": 48.14, "lon": 11.58}
 
-# 기기 상태 보고. 한 줄에 한 건씩 파일에 쌓고, 대시보드를 열 때 읽는다. 버리지 않는다 —
-# 30분에 한 건이라 1년이 1MB 도 안 된다. Fly 에서는 볼륨 위를 가리켜서 재배포와 머신
-# 재시작을 넘어 남게 한다 (fly.toml 의 REPORTS_FILE).
-_STORE = os.getenv("REPORTS_FILE", "reports.jsonl")
+# 기기 상태 보고. 받으면 볼륨 위 파일에 한 줄씩 쌓고, 한 시간에 한 번 Neon 으로 옮긴다.
+# 보고마다 DB 에 쓰면 30분마다 잠든 DB 를 깨워서 보드 몇 대만으로 무료 한도를 넘는다.
+# 파일에 먼저 쓰니 DB 가 멈춰도 보고는 남는다. Fly 에서는 볼륨 위를 가리킨다
+# (fly.toml 의 REPORTS_BUFFER).
+_BUFFER = os.getenv("REPORTS_BUFFER", "pending-reports.jsonl")
+_FLUSH_SECONDS = 3600
+_last_flush = float("-inf")     # 뜬 뒤 첫 보고에서, 지난번에 못 옮기고 남은 파일부터 옮긴다
+_flush_lock = threading.Lock()
 
 
 def _append_report(row: dict) -> None:
-    with open(_STORE, "a", encoding="utf-8") as f:
+    with open(_BUFFER, "a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def _read_reports() -> list[dict]:
-    if not os.path.exists(_STORE):
-        return []
-    with open(_STORE, encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+def _seal_buffer() -> None:
+    """지금까지 쌓인 버퍼를 봉인 파일로 넘긴다. 이벤트 루프에서만 부른다 — 보고를 덧붙이는 것도
+    루프에서만 하므로, 이름을 바꾸는 사이에 한 줄이 끼어들 수 없다."""
+    if os.path.exists(_BUFFER):
+        os.replace(_BUFFER, f"{_BUFFER}.{time.time_ns()}")
+
+
+def _flush_sealed() -> None:
+    """봉인된 파일을 오래된 것부터 Neon 에 넣고 지운다. 실패하면 그 파일을 남겨 다음 번에 다시
+    넣는다 — 이미 들어간 보고는 db.add_reports 가 건너뛰므로 두 번 넣어도 된다."""
+    with _flush_lock:
+        for path in sorted(glob.glob(glob.escape(_BUFFER) + ".*")):
+            with open(path, encoding="utf-8") as f:
+                rows = [json.loads(line) for line in f if line.strip()]
+            try:
+                result = db.add_reports(rows)
+            except Exception as e:
+                print(f"flush failed, keeping {path}: {e!r}", flush=True)
+                return
+            os.remove(path)
+            print(f"flushed {path}: {result}", flush=True)
+
+
+def _flush_if_due() -> BackgroundTask | None:
+    """마지막으로 옮긴 지 한 시간이 지났으면 버퍼를 봉인하고, 응답을 보낸 뒤에 옮긴다.
+    보드는 DB 를 기다리지 않는다."""
+    global _last_flush
+    if time.monotonic() - _last_flush < _FLUSH_SECONDS:
+        return None
+    _last_flush = time.monotonic()
+    _seal_buffer()
+    return BackgroundTask(_flush_sealed)
 
 
 # 기기가 보내는 로그 항목의 종류. 대시보드가 이 문자열을 이스케이프 없이 HTML 에 넣으므로
 # 화이트리스트로 거른다 — 기기가 지어낸 문자열은 페이지에 닿지 못한다.
 _LOG_KINDS = {"wifi", "http", "portal-new", "portal-lost", "portal-timeout", "full"}
-_LOG_FIELDS = ("wifi_attempts", "reset_reason", "battery_mv", "wifi_ms", "rssi",
-               "wifi_status", "http_code")
+
+# 펌웨어가 DB 와 다른 이름으로 보내는 항목. 4단계에서 펌웨어를 고치면 지운다.
+_BOARD_NAMES = {"fw_version": "fw"}
+# 보드가 4단계부터 싣는 비밀값. 원본(report_raw)에도 남기지 않는다.
+_SECRET_KEYS = ("token", "claim_code")
 
 
 def _int(v) -> int | None:
@@ -107,11 +147,15 @@ def _clean_entry(e: dict) -> dict:
     그냥 빠진다 — 자리를 채우지 않는다."""
     kind = e.get("kind")
     out = {"kind": kind if kind in _LOG_KINDS else "unknown"}
-    for k in _LOG_FIELDS:
+    for k in db.LOG_FIELDS:
         v = _int(e.get(k))
         if v is not None:
             out[k] = v
     return out
+
+
+# db.py 의 항목 타입마다 들어온 값을 거르는 함수.
+_CLEAN = {int: _int, float: _float, bool: _bool, str: _tag}
 
 
 def _set_led(on: bool) -> None:
@@ -233,12 +277,15 @@ def _stamp(utc_offset_seconds: int) -> str:
     return f"{WEEKDAY[t.weekday()]} {t.hour:02d}:{t.minute:02d}"
 
 
-async def _weather_body() -> tuple[dict, int]:
-    """날씨 본문과 상태코드.
+async def _weather_body() -> tuple[dict, int, dict]:
+    """날씨 본문과 상태코드, 그리고 그 보고와 함께 DB 에 남길 날씨.
 
     수치는 숫자로 보낸다. `°C` 나 `km/h` 는 표시 결정이라 기기가 붙인다. 조회에
     실패하면 날씨 키를 통째로 빼고 도시만 남긴다 — 줄 단위 포맷과 달리 JSON 은
     없는 값을 자리를 채워가며 설명할 필요가 없다.
+
+    DB 에는 반올림하기 전 값과 날씨 코드를 남긴다. 반올림과 한글 설명은 화면을 위한 것이라
+    언제든 다시 만들 수 있다. 조회에 실패하면 DB 쪽은 통째로 비운다.
     """
     loc = dict(_location)  # 요청 처리 중 위치가 바뀌어도 한 응답 안에서는 일관되게.
     url = ("https://api.open-meteo.com/v1/forecast"
@@ -258,18 +305,24 @@ async def _weather_body() -> tuple[dict, int]:
         tmin  = round(daily["temperature_2m_min"][0])
         pop   = daily["precipitation_probability_max"][0] or 0           # 강수확률(None 방어)
         stamp = _stamp(data.get("utc_offset_seconds", 0))
+        record = {"city": loc["name"], "lat": loc["lat"], "lon": loc["lon"],
+                  "out_temp_c": cur["temperature_2m"], "out_humidity": cur["relative_humidity_2m"],
+                  "out_temp_max_c": daily["temperature_2m_max"][0],
+                  "out_temp_min_c": daily["temperature_2m_min"][0],
+                  "weather_code": cur["weather_code"], "wind_kmh": cur["wind_speed_10m"],
+                  "pop": daily["precipitation_probability_max"][0]}
         return ({"city": loc["name"], "temp_c": temp, "cond": desc, "wind_kmh": wind,
                  "humidity": humid, "temp_max_c": tmax, "temp_min_c": tmin, "pop": pop,
-                 "stamp": stamp}, 200)
+                 "stamp": stamp}, 200, record)
     except Exception:
         # stamp 도 뺀다: 현지 시각 오프셋이 실패한 그 응답 안에 들어 있어서 서버도 모른다.
-        return ({"city": loc["name"]}, 500)
+        return ({"city": loc["name"]}, 500, {})
 
 
 @mcp.custom_route("/weather", methods=["GET"])
 async def weather(request: Request) -> JSONResponse:
     """브라우저나 curl 로 확인할 때 쓰는 읽기 전용 경로. 기기는 POST 를 쓴다."""
-    body, status = await _weather_body()
+    body, status, _ = await _weather_body()
     return JSONResponse(body, status_code=status)
 
 
@@ -277,7 +330,7 @@ async def weather(request: Request) -> JSONResponse:
 async def weather_report(request: Request) -> JSONResponse:
     """기기가 wake 마다 부르는 경로. 상태 보고를 받고 날씨를 응답한다.
 
-    시각은 기기가 모르므로 서버 시계로 찍는다. 토큰 검증은 DB 를 붙일 때 함께 들어간다.
+    시각은 기기가 모르므로 서버 시계로 찍는다. 토큰 검증은 4단계(보드 등록)에서 들어간다.
     """
     try:
         report = await request.json()
@@ -285,27 +338,25 @@ async def weather_report(request: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"error": "bad body"}, status_code=400)
 
-    row = {
-        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "battery_mv": battery_mv, "wifi_ms": wifi_ms, "rssi": rssi,
-    }
+    row = {"received_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     # 어느 기기가 보냈나. 이게 없으면 여러 대가 한 줄로 섞여서, 앞 행과 비교하는 것들이
     # (배터리 추세, wake 시간) 서로 다른 기기를 비교하게 된다.
     if (mac := _tag(report.get("mac"))):
         row["mac"] = mac
     # 나머지는 있으면 싣고 없으면 만다. 기기 펌웨어와 이 서버는 따로 배포되므로 한쪽이
-    # 아직 모르는 필드가 있어도 보고가 깨지면 안 된다.
-    for k, clean in (("reset_reason", _int), ("wifi_attempts", _int),
-                     ("prev_awake_ms", _int), ("nvs_free", _int), ("nvs_total", _int),
-                     ("chip_c", _float), ("room_c", _float), ("room_rh", _float),
-                     ("room_err", _tag), ("room_sda", _bool), ("room_scl", _bool),
-                     ("room_ack", _tag), ("room_stuck", _bool), ("fw", _tag)):
-        v = clean(report.get(k))
+    # 아직 모르는 필드가 있어도 보고가 깨지면 안 된다. 항목 목록은 db.py 한 곳에 있다.
+    for name, kind in {**db.REPORT_FIELDS, **db.SENSOR_FIELDS}.items():
+        v = _CLEAN[kind](report.get(_BOARD_NAMES.get(name, name)))
         if v is not None:
-            row[k] = v
+            row[name] = v
     log = report.get("log")
     if isinstance(log, list) and log:
         row["log"] = [_clean_entry(e) for e in log if isinstance(e, dict)]
+    # 받은 그대로도 남긴다. 서버가 아직 모르는 항목을 나중에 칸으로 뽑을 때 옛 보고에서도 채우려고.
+    row["raw"] = {k: v for k, v in report.items() if k not in _SECRET_KEYS}
+
+    body, status, weather = await _weather_body()
+    row.update(weather)
     _append_report(row)
 
     tail = f" +{len(row['log'])} logged" if "log" in row else ""
@@ -314,17 +365,19 @@ async def weather_report(request: Request) -> JSONResponse:
         tail += f" scl{int(bool(row.get('room_scl')))} ack={row.get('room_ack') or '-'})"
     print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm{tail}", flush=True)
 
-    body, status = await _weather_body()
-    return JSONResponse(body, status_code=status)
+    return JSONResponse(body, status_code=status, background=_flush_if_due())
 
 @mcp.custom_route("/dashboard", methods=["GET"])
 async def dashboard_page(request: Request) -> HTMLResponse:
     """기기가 보내온 보고를 훑어보는 페이지.
 
     ?mac=... 을 주면 그 기기만. 안 주면 전부 섞어서 보여주고 표에 mac 열이 붙는다.
+    아직 Neon 으로 옮기지 않은 보고를 먼저 옮긴 뒤 읽는다. 그래야 방금 들어온 보고까지 보인다.
     """
-    return HTMLResponse(dashboard.render(_read_reports(),
-                                         _tag(request.query_params.get("mac"))))
+    _seal_buffer()
+    await run_in_threadpool(_flush_sealed)
+    rows = await run_in_threadpool(db.read_reports)
+    return HTMLResponse(dashboard.render(rows, _tag(request.query_params.get("mac"))))
 
 
 if __name__ == "__main__":
