@@ -142,6 +142,8 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX device_access_user ON device_access (user_id)",
+    # 3단계: 보드마다 날씨 위치. 비어 있으면 서버 기본 위치(뮌헨)로 조회한다.
+    "ALTER TABLE devices ADD COLUMN city TEXT, ADD COLUMN lat DOUBLE PRECISION, ADD COLUMN lon DOUBLE PRECISION",
 ]
 
 _migrated = False
@@ -286,6 +288,46 @@ def devices_for(conn: psycopg.Connection, user_id: str) -> list[int]:
     조건을 핸들러마다 따로 쓰면 하나만 빠뜨려도 에러 없이 남의 데이터가 나간다."""
     rows = conn.execute("SELECT device_id FROM device_access WHERE user_id = %s", (user_id,)).fetchall()
     return [r["device_id"] for r in rows]
+
+
+# 보드를 바꾸는 조회에 붙이는 조건: 요청한 사람이 그 보드의 주인이다.
+_OWNED_BY = "id IN (SELECT device_id FROM device_access WHERE user_id = %s AND role = 'owner')"
+
+
+def list_devices(user_id: str) -> list[dict]:
+    """이 사람이 볼 수 있는 보드의 번호, 이름, MAC, 위치, 역할."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT d.id, d.name, d.mac, d.city, d.lat, d.lon, a.role"
+            " FROM devices d JOIN device_access a ON a.device_id = d.id"
+            " WHERE a.user_id = %s ORDER BY d.id",
+            (user_id,),
+        ).fetchall()
+
+
+def set_location(user_id: str, device_id: int, city: str, lat: float, lon: float) -> bool:
+    """주인이면 보드의 날씨 위치를 바꾸고 True. 남의 보드와 없는 번호는 똑같이 False 다 — 그 보드가
+    있는지조차 알려 주지 않는다."""
+    with _connect() as conn:
+        cur = conn.execute(f"UPDATE devices SET city = %s, lat = %s, lon = %s WHERE id = %s AND {_OWNED_BY}",
+                           (city, lat, lon, device_id, user_id))
+        return cur.rowcount == 1
+
+
+def rename_device(user_id: str, device_id: int, name: str) -> bool:
+    """주인이면 보드 이름을 바꾸고 True. 실패는 set_location 과 같다."""
+    with _connect() as conn:
+        cur = conn.execute(f"UPDATE devices SET name = %s WHERE id = %s AND {_OWNED_BY}",
+                           (name, device_id, user_id))
+        return cur.rowcount == 1
+
+
+def read_locations() -> dict[str | None, dict]:
+    """위치를 정해 둔 보드의 MAC 별 위치. MAC 을 안 보내는 보드는 None 키다. 서버가 메모리에 사본으로
+    들고 있다가 보고에 답할 때 쓴다."""
+    with _connect() as conn:
+        rows = conn.execute("SELECT mac, city, lat, lon FROM devices WHERE city IS NOT NULL").fetchall()
+    return {r["mac"]: {"name": r["city"], "lat": r["lat"], "lon": r["lon"]} for r in rows}
 
 
 def read_reports(user_id: str) -> list[dict]:

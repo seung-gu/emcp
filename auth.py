@@ -21,14 +21,14 @@ from workos.session import seal_data, unseal_data
 AUTH_ISSUER = os.environ.get("MCP_AUTH_ISSUER")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8080")
 RESOURCE = f"{PUBLIC_URL}/mcp"   # 이 서버의 MCP 주소. 토큰의 aud 가 이 값과 같아야 한다
-AUTH_ORG = os.environ.get("MCP_AUTH_ORG")   # 승인 명단으로 쓰는 WorkOS 조직 (org_...)
 
 
 # --- /mcp: MCP 클라이언트가 보내는 AuthKit 토큰 검사 ---
 # MCP 인증 (OAuth 2.1): https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization
 
 class AuthKitVerifier(TokenVerifier):
-    """우리 AuthKit 이 이 서버 앞으로 서명한 토큰 중, 승인 명단(AUTH_ORG) 멤버의 토큰만 받는다."""
+    """우리 AuthKit 이 이 서버 앞으로 서명한 토큰만 받는다. 가입은 누구나 할 수 있고, 무엇을 볼 수 있는지는
+    device_access 가 정한다."""
 
     def __init__(self):
         self.jwks = jwt.PyJWKClient(f"{AUTH_ISSUER}/oauth2/jwks")
@@ -49,8 +49,6 @@ class AuthKitVerifier(TokenVerifier):
                 # PyJWT 는 exp 가 없으면 만료 검사를 건너뛴다. exp, sub, client_id 가 없는 토큰은 거절한다
                 options={"require": ["exp", "sub", "client_id"]},
             )
-            if not approved(claims.get("org_id")):
-                raise jwt.InvalidTokenError(f"not approved: {claims['sub']} has org_id {claims.get('org_id')}")
         except jwt.PyJWTError as e:
             logging.getLogger(__name__).warning("token rejected: %s", e)
             return None
@@ -58,12 +56,6 @@ class AuthKitVerifier(TokenVerifier):
         # subject 에 사용자 ID 를 넣는다. 도구는 이 값으로 호출한 사람을 알고, SDK 는 이 값으로 세션 주인을 확인한다
         return AccessToken(token=token, client_id=claims["client_id"], scopes=[],
                            expires_at=claims["exp"], subject=claims["sub"])
-
-
-def approved(org_id: str | None) -> bool:
-    """org_id 가 승인 명단 조직(AUTH_ORG)인지. AUTH_ORG 가 비어 있으면 None == None 으로 모두 통과하므로
-    아무도 승인하지 않는다."""
-    return bool(AUTH_ORG) and org_id == AUTH_ORG
 
 
 def fastmcp_options() -> dict:
@@ -77,12 +69,12 @@ def fastmcp_options() -> dict:
     }
 
 
-# --- 대시보드 로그인: AuthKit 으로 로그인시키고, 승인 명단을 확인한 뒤 봉인한 세션 쿠키를 준다 ---
+# --- 대시보드 로그인: AuthKit 으로 로그인시키고 봉인한 세션 쿠키를 준다 ---
 # OAuth 2.1 코드 흐름: https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/
 # PKCE: https://www.rfc-editor.org/rfc/rfc7636
 
 _COOKIE_PASSWORD = os.environ.get("WORKOS_COOKIE_PASSWORD", "")
-SIGN_IN_HOURS = 12  # 승인 명단에서 빠져도 쿠키가 만료될 때까지는 대시보드를 볼 수 있다
+SIGN_IN_HOURS = 12
 
 try:
     Fernet(_COOKIE_PASSWORD)
@@ -91,8 +83,7 @@ except ValueError:  # 없거나 Fernet 키가 아니면 로그인과 세션 확�
 
 
 class SignInError(Exception):
-    """로그인을 끝낼 수 없을 때 낸다. 이 브라우저에서 시작한 로그인이 없거나, 다른 로그인의 응답이거나,
-    승인되지 않은 계정인 경우다."""
+    """로그인을 끝낼 수 없을 때 낸다. 이 브라우저에서 시작한 로그인이 없거나, 다른 로그인의 응답인 경우다."""
 
 
 @cache
@@ -126,9 +117,6 @@ def finish_sign_in(started_sealed: str, code: str | None, state: str | None) -> 
     except WorkOSError as e:  # 이미 쓴 코드(뒤로 가기, 새로 고침), 만료된 코드, WorkOS 장애
         logging.getLogger(__name__).warning("sign-in code exchange failed: %s", e)
         raise SignInError("WorkOS 가 로그인을 끝내지 못했습니다. /dashboard 에서 다시 시작하세요.") from e
-    if not approved(result.organization_id):
-        logging.getLogger(__name__).warning("sign-in not approved: %s", result.user.id)
-        raise SignInError("로그인은 됐지만 아직 승인되지 않은 계정입니다.")
     return seal_data({"until": time.time() + SIGN_IN_HOURS * 3600, "sub": result.user.id}, _COOKIE_PASSWORD)
 
 

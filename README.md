@@ -1,20 +1,17 @@
-# emcp — Embedded LED / Weather MCP Server
+# emcp — e-ink 날씨 보드 서버
 
-Claude / ChatGPT 가 MCP 도구로 LED flag 를 켜고/끄거나 날씨 위치를 바꾸면, ESP32
-보드가 이 서버를 polling 해서 LED 와 화면에 반영하는 구조. **이 저장소는 MCP
-서버만 다룬다** (ESP32 펌웨어는 별도).
+ESP32 e-ink 보드는 깨어날 때마다 이 서버에 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를
+받아 화면에 그린다. 사람은 Claude / ChatGPT 에서 MCP 도구로 자기 보드의 날씨 위치와 이름을 바꾸고,
+`/dashboard` 에서 보고를 본다. **이 저장소는 서버만 다룬다** (ESP32 펌웨어는 별도).
 
 ```
-[Claude / ChatGPT]  --MCP (Streamable HTTP)-->  ┌────────────────────────┐
-                                                │  emcp 서버              │
-                                                │  flag:     on / off     │
-[ESP32 board]  ----GET /led     (polling)---->  │  location: 뮌헨 48,11   │
-               ----GET /weather (polling)---->  └────────────────────────┘
-   on 이면 LED ON, off 면 LED OFF                        │
-   /weather 응답을 화면에 표시                   open-meteo (키 불필요)
+[Claude / ChatGPT] --MCP /mcp (로그인)----->  ┌───────────┐ --보드, 보고--> Neon
+[브라우저]         --/dashboard (로그인)--->  │ emcp 서버 │
+[ESP32 보드]       --POST /weather (보고)-->  └───────────┘ --날씨-------> open-meteo (키 불필요)
 ```
 
-두 인터페이스는 **in-memory 공유 상태** 를 함께 본다.
+로그인은 WorkOS AuthKit 이 맡고, 사람마다 자기 보드만 본다. 설계와 진행 상황은
+[docs/multi-user-rollout.ko.md](docs/multi-user-rollout.ko.md) 에 있다.
 
 ## 인터페이스
 
@@ -24,48 +21,44 @@ Claude / ChatGPT 가 MCP 도구로 LED flag 를 켜고/끄거나 날씨 위치�
 - 도구:
   | 도구 | 동작 |
   |------|------|
-  | `turn_on_led`   | flag 를 on 으로 설정 |
-  | `turn_off_led`  | flag 를 off 로 설정 |
-  | `get_led_status`| 현재 flag 반환 (`"on"` / `"off"`) |
+  | `get_weather_location` | 내 보드마다 번호, 이름, MAC, 날씨 위치, 역할 (`"3 / 거실 / E8F60A17AF28 / 뮌헨 (기본값) / 주인"`) |
   | `search_location(query, count=5)` | 지명으로 좌표 후보 검색 (open-meteo geocoding) |
-  | `set_weather_location(name, latitude, longitude)` | 날씨를 조회할 위치 설정 |
-  | `get_weather_location` | 현재 위치 반환 (`"뮌헨 (48.14, 11.58)"`) |
+  | `set_weather_location(device_id, name, latitude, longitude)` | 보드 하나의 날씨 위치 설정. 주인만 |
+  | `rename_device(device_id, name)` | 보드 이름 바꾸기. 주인만 |
 
-날씨 위치를 바꾸는 정상 흐름은 **`search_location` → 후보 선택 →
+위치를 정하지 않은 보드는 뮌헨으로 조회한다. 날씨 위치를 바꾸는 정상 흐름은
+**`get_weather_location` 으로 보드 번호 확인 → `search_location` → 후보 선택 →
 `set_weather_location`** 이다:
 
 ```
-사용자: "베를린 날씨 보여줘"
+사용자: "거실 보드 베를린 날씨로 바꿔줘"
+  → get_weather_location()
+      3 / 거실 / E8F60A17AF28 / 뮌헨 (기본값) / 주인
   → search_location("Berlin")
       베를린 / 베를린 / 독일 / 52.52437,13.41053 / 인구 3426354
       벌린 / 뉴햄프셔주 / 미국 / 44.46867,-71.18508 / 인구 9367   ← 동명이지 주의
-  → set_weather_location("베를린", 52.52437, 13.41053)
+  → set_weather_location(3, "베를린", 52.52437, 13.41053)
 ```
 
 LLM 이 기억에 의존해 좌표를 넣으면 **틀려도 에러 없이 엉뚱한 도시 날씨가 뜬다.**
 그래서 검색 단계를 도구로 노출했다. 질의는 한글보다 로마자가 정확하다 — `"광주"`
 는 충남 천안의 작은 지명 하나만 나오지만 `"Gwangju"` 는 광주광역시가 최상단이다.
 
-### 2. HTTP polling (ESP32 용)
+### 2. HTTP (ESP32 용)
 
 | 메서드 & 경로 | 응답 | 용도 |
 |---------------|------|------|
-| `GET /led`    | `1` (on) 또는 `0` (off) — 1바이트 plain text | ESP32 가 주기적으로 조회 |
-| `GET /weather`| 날씨 JSON (아래) | 브라우저·curl 확인용 |
 | `POST /weather`| 날씨 JSON (아래) | ESP32 가 wake 마다 호출 |
 | `GET /health` | `ok` | Fly.io 헬스체크 |
 
-ESP32 는 `GET /led` 를 일정 주기로 호출해서 본문이 `1` 이면 LED 를 켜고 `0` 이면
-끄면 된다 (파싱 없이 첫 바이트만 비교).
-
 `POST /weather` 의 본문은 그 wake 의 상태 보고다. 날씨 요청에 얹혀 가므로 왕복이
-늘지 않는다:
+늘지 않는다. 서버는 `mac` 으로 보드를 찾아 그 보드 위치의 날씨를 돌려준다:
 
 ```json
-{"battery_mv": 3912, "wifi_ms": 184, "rssi": -58}
+{"mac": "E8F60A17AF28", "battery_mv": 3912, "wifi_ms": 184, "rssi": -58}
 ```
 
-응답은 두 경로가 같다. 수치는 숫자로 보내고 `°C` 나 `km/h` 는 기기가 붙인다:
+수치는 숫자로 보내고 `°C` 나 `km/h` 는 기기가 붙인다:
 
 ```json
 {"city": "뮌헨", "temp_c": 19, "cond": "구름 조금", "wind_kmh": 4,
@@ -74,16 +67,19 @@ ESP32 는 `GET /led` 를 일정 주기로 호출해서 본문이 `1` 이면 LED 
 ```
 
 조회에 실패하면 날씨 키를 통째로 빼고 `{"city": "뮌헨"}` 만 남기며 **HTTP 500** 을
-반환한다. 펌웨어는 상태 코드로 본문을 거르니 이 폴백은 화면에 도달하지 않는다 —
-curl 로 볼 때만 보인다.
+반환한다. 펌웨어는 상태 코드로 본문을 거르니 이 폴백은 화면에 도달하지 않는다.
 
 ## 로컬 실행
 
-보고는 Neon Postgres 에 저장한다. 작업 디렉터리의 `.env` 에 접속 주소를 넣어 둔다
-(`.env` 는 gitignore 됨):
+작업 디렉터리의 `.env` 에 Neon 접속 주소와 WorkOS 값을 넣어 둔다 (`.env` 는 gitignore 됨).
+`MCP_AUTH_ISSUER` 가 없으면 서버가 뜨지 않는다:
 
 ```text
 DATABASE_URL=postgresql://...
+WORKOS_CLIENT_ID=client_...
+WORKOS_API_KEY=sk_...
+MCP_AUTH_ISSUER=https://<authkit 도메인>
+WORKOS_COOKIE_PASSWORD=<Fernet 키>
 ```
 
 ```bash
@@ -94,10 +90,12 @@ uv run --env-file .env python server.py   # 기본 포트 8080, PORT 환경변�
 확인:
 
 ```bash
-curl http://127.0.0.1:8080/led      # 0
-curl http://127.0.0.1:8080/health   # ok
-curl -s http://127.0.0.1:8080/weather | jq   # 날씨 JSON
+curl http://127.0.0.1:8080/health                                              # ok
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8080/mcp     # 401 (로그인 필요)
 ```
+
+로컬도 운영과 같은 Neon 을 쓴다. 로컬에 `POST /weather` 로 보고를 보내면 한 시간 안에 Neon 으로
+옮겨져 진짜 기록에 섞인다.
 
 ## Fly.io 배포
 
@@ -106,7 +104,8 @@ curl -s http://127.0.0.1:8080/weather | jq   # 날씨 JSON
 
 ```bash
 fly volumes create reports --size 1 --region fra
-grep '^DATABASE_URL=' .env | fly secrets import    # 값이 화면에 찍히지 않는다
+fly secrets import < .env                           # 값이 화면에 찍히지 않는다
+fly secrets set PUBLIC_URL=https://<app>.fly.dev    # 앱마다 다르다. 토큰의 aud 와 로그인 주소에 쓴다
 fly deploy --ha=false
 ```
 
@@ -114,7 +113,8 @@ fly deploy --ha=false
 같은 코드를 올린다: `fly deploy --ha=false -a emcp-led`.
 
 - MCP 엔드포인트: `https://<app>.fly.dev/mcp`
-- ESP32 polling: `https://<app>.fly.dev/led`, `https://<app>.fly.dev/weather`
+- 보드 보고: `POST https://<app>.fly.dev/weather`
+- 대시보드: `https://<app>.fly.dev/dashboard`
 
 ## 보고 보관
 
@@ -145,12 +145,9 @@ uv run --env-file .env python -m scripts.import_reports reports.jsonl
 를 달아 두었다. 보고 간격이 고르지 않으므로(재시도와 벤치 테스트가 섞여 있다) 그 시각은
 순서를 세우는 용도지 믿을 값이 아니다. 차트는 x를 위치로만 쓰므로 모양은 원본 그대로다.
 
-## 상태에 대한 주의
+## 날씨 위치
 
-LED flag 와 날씨 위치는 **프로세스 메모리에만 존재하는 휘발성 상태**다. 재시작하면
-각각 `off` / `뮌헨` 으로 초기화된다. 그래서 `fly.toml` 에서
-`auto_stop_machines = "off"`, `min_machines_running = 1` 로 두어 머신이 꺼지지
-않게 했다. **단, 재배포하면 초기화된다.**
-
-재배포/재시작 후에도 값을 유지하려면 Fly volume 을 붙여 `server.py` 의
-`_led_on` / `_location` 저장소만 파일 또는 DB 로 교체하면 된다.
+보드마다 Neon 의 `devices` 에 저장한다. 보고에 DB 를 기다리지 않고 답하려고 서버가 MAC 별 사본을
+메모리에 둔다. 사본은 서버가 뜰 때, 보고를 Neon 으로 옮길 때, 위치를 바꿀 때 다시 읽는다. 그래서
+두 앱(`emcp`, `emcp-led`)이 같은 DB 를 쓰는 동안에는 한쪽에서 바꾼 위치가 다른 쪽에는 그 앱이 다음에
+보고를 옮길 때(최대 한 시간) 들어간다.

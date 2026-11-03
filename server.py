@@ -1,26 +1,17 @@
-"""Embedded LED / weather MCP server.
+"""emcp: e-ink 날씨 보드 서버.
 
-두 개의 인터페이스가 in-memory 공유 상태(LED flag, 날씨 위치)를 함께 본다:
+1. MCP (Streamable HTTP, /mcp). 로그인한 사람만 쓰고, 도구는 부른 사람의 보드만 다룬다.
+   - `get_weather_location` 으로 내 보드와 각 보드의 날씨 위치를 본다.
+   - `search_location` 으로 지명의 좌표 후보를 찾고, 고른 좌표를 `set_weather_location` 에 넘겨
+     보드 하나의 위치를 바꾼다. `rename_device` 로 보드에 이름을 붙인다.
 
-1. MCP 인터페이스 (Streamable HTTP, 기본 경로 /mcp)
-   - Claude/ChatGPT가 `turn_on_led` / `turn_off_led` / `get_led_status` 도구를
-     호출해서 flag 를 바꾼다.
-   - `search_location` 으로 지명의 좌표 후보를 찾고, 고른 좌표를
-     `set_weather_location` 에 넘겨 날씨를 조회할 위치를 바꾼다.
-     `get_weather_location` 으로 현재 위치를 확인한다.
+2. 보드용 HTTP
+   - 보드는 깨어날 때마다 `POST /weather` 로 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를 받는다.
 
-2. 일반 HTTP 인터페이스 (ESP32 polling 용)
-   - ESP32 는 MCP 프로토콜을 말하기 어려우므로, 단순 `GET /led` 로 현재 flag 를
-     주기적으로 조회한다. 응답이 on 이면 LED 를 켜고 off 면 끈다.
-   - `POST /weather` 로 상태 보고를 올리면서 같은 응답으로 날씨 JSON 을 받아 표시한다.
+3. 대시보드 (/dashboard). 로그인한 사람이 볼 수 있는 보드의 보고를 그린다.
 
-flag 와 위치는 프로세스 메모리에만 존재하는 휘발성 상태다. 프로세스가 재시작되면
-각각 off / 뮌헨 으로 초기화된다. Fly.io 에서는 볼륨을 붙이지 않는 한 파일도 재배포
-시 사라지므로, 진짜 영속이 필요하면 Fly volume + 파일/DB 로 `_led_on` 과
-`_location` 저장소만 교체하면 된다.
-
-공식 MCP Python SDK(`mcp` 패키지)의 FastMCP 를 사용한다. 날씨/지오코딩은 API 키가
-필요 없는 open-meteo 를 쓴다.
+보드와 보고는 Neon 에 둔다 (db.py). 공식 MCP Python SDK(`mcp` 패키지)의 FastMCP 를 사용한다.
+날씨/지오코딩은 API 키가 필요 없는 open-meteo 를 쓴다.
 """
 
 from __future__ import annotations
@@ -33,6 +24,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.fastmcp import FastMCP
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
@@ -43,12 +35,21 @@ import auth
 import dashboard
 import db
 
-# --- 공유 상태 (휘발성, in-memory) ---------------------------------------------
-# GIL 덕분에 단일 bool 의 읽기/쓰기는 원자적이라 별도 락이 필요 없다.
-_led_on = False
+# 날씨 위치는 보드마다 devices 에 있다. 보고에 DB 를 기다리지 않고 답하려고 MAC 별 사본을 메모리에 둔다.
+# 사본은 서버가 뜰 때, 보고를 Neon 으로 옮길 때(DB 가 어차피 깨어 있을 때), 위치를 바꿀 때 다시 읽는다.
+# 그래서 다른 앱(emcp, emcp-led)에서 바꾼 위치는 이 앱이 다음에 보고를 옮길 때 들어온다.
+# 위치를 정하지 않은 보드와 아직 DB 에 없는 보드는 기본 위치로 조회한다.
+_DEFAULT_LOCATION = {"name": "뮌헨", "lat": 48.14, "lon": 11.58}
+_locations: dict[str | None, dict] = {}
 
-# 날씨를 조회할 위치. 기본값은 뮌헨이고 MCP 도구로 바꾼다.
-_location = {"name": "뮌헨", "lat": 48.14, "lon": 11.58}
+
+def _load_locations() -> None:
+    """DB 에서 위치 사본을 다시 읽는다. 실패하면 있던 사본을 그대로 쓴다."""
+    global _locations
+    try:
+        _locations = db.read_locations()
+    except Exception as e:
+        print(f"loading locations failed, keeping the old copy: {e!r}", flush=True)
 
 # 기기 상태 보고. 받으면 볼륨 위 파일에 한 줄씩 쌓고, 한 시간에 한 번 Neon 으로 옮긴다.
 # 보고마다 DB 에 쓰면 30분마다 잠든 DB 를 깨워서 보드 몇 대만으로 무료 한도를 넘는다.
@@ -86,6 +87,7 @@ def _flush_sealed() -> None:
                 return
             os.remove(path)
             print(f"flushed {path}: {result}", flush=True)
+    _load_locations()
 
 
 def _flush_if_due() -> BackgroundTask | None:
@@ -159,16 +161,17 @@ def _clean_entry(e: dict) -> dict:
 _CLEAN = {int: _int, float: _float, bool: _bool, str: _tag}
 
 
-def _set_led(on: bool) -> None:
-    global _led_on
-    _led_on = on
+def _name(v: str) -> str | None:
+    """사람이 정하는 도시 이름과 보드 이름. 앞뒤 공백을 떼고, 비었거나 40자를 넘으면 None."""
+    v = v.strip()
+    return v if 0 < len(v) <= 40 else None
 
 
 # Fly.io 는 PORT 환경변수로 내부 포트를 넘겨준다. 없으면 8080.
 _port = int(os.environ.get("PORT", "8080"))
 # stateless_http: 요청마다 그 요청의 토큰으로 사용자를 정한다. 세션을 이어 쓰면 도구가 세션을 처음 연
 # 사람으로 실행될 수 있다 (docs/multi-user-rollout.ko.md 2단계).
-mcp = FastMCP("LED Controller", host="0.0.0.0", port=_port, stateless_http=True,
+mcp = FastMCP("emcp", host="0.0.0.0", port=_port, stateless_http=True,
               **auth.fastmcp_options())
 
 # 로그인 쿠키. HttpOnly: 페이지 스크립트가 못 읽는다. Secure: https 에서만 (로컬 http 는 예외).
@@ -177,45 +180,63 @@ _COOKIE = {"httponly": True, "secure": auth.PUBLIC_URL.startswith("https://"), "
 
 
 # --- MCP 도구 (Claude/ChatGPT 가 호출) -----------------------------------------
-@mcp.tool()
-def turn_on_led() -> str:
-    """LED 를 켠다. ESP32 보드가 다음 polling 때 LED 를 켠다."""
-    _set_led(True)
-    return "LED flag set to ON"
+def _caller() -> str:
+    """도구를 부른 사람의 WorkOS 사용자 ID. /mcp 에는 토큰을 확인한 요청만 들어온다."""
+    return get_access_token().subject
 
 
 @mcp.tool()
-def turn_off_led() -> str:
-    """LED 를 끈다. ESP32 보드가 다음 polling 때 LED 를 끈다."""
-    _set_led(False)
-    return "LED flag set to OFF"
+async def get_weather_location() -> str:
+    """내가 볼 수 있는 보드마다 '번호 / 이름 / MAC / 날씨 위치 / 역할' 을 한 줄씩 보여준다.
+    위치나 이름을 바꿀 때 이 번호를 쓴다."""
+    devices = await run_in_threadpool(db.list_devices, _caller())
+    if not devices:
+        return "연결된 보드가 없다"
+    lines = []
+    for d in devices:
+        if d["city"]:
+            where = f"{d['city']} ({d['lat']}, {d['lon']})"
+        else:
+            where = f"{_DEFAULT_LOCATION['name']} (기본값)"
+        role = "주인" if d["role"] == "owner" else "공유받음"
+        lines.append(f"{d['id']} / {d['name'] or '이름 없음'} / {d['mac'] or 'MAC 없음'} / {where} / {role}")
+    return "\n".join(lines)
 
 
 @mcp.tool()
-def get_led_status() -> str:
-    """현재 LED flag 를 반환한다 ('on' 또는 'off')."""
-    return "on" if _led_on else "off"
-
-
-@mcp.tool()
-def set_weather_location(name: str, latitude: float, longitude: float) -> str:
-    """날씨를 조회할 위치를 바꾼다. ESP32 가 다음 polling 때 이 위치의 날씨를 표시한다.
+async def set_weather_location(device_id: int, name: str, latitude: float, longitude: float) -> str:
+    """보드 하나의 날씨 위치를 바꾼다. 그 보드가 다음에 깨어날 때 이 위치의 날씨를 표시한다.
+    보드의 주인만 바꿀 수 있다.
 
     Args:
+        device_id: 보드 번호 (`get_weather_location` 이 보여주는 첫 칸).
         name: 화면에 표시할 도시 이름 (예: '베를린').
         latitude: 위도 (-90 ~ 90).
         longitude: 경도 (-180 ~ 180).
     """
     if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
         return f"좌표 범위가 잘못됐다: ({latitude}, {longitude})"
-    _location.update(name=name, lat=latitude, lon=longitude)
-    return f"날씨 위치를 {name} ({latitude}, {longitude}) 로 설정했다"
+    if not (city := _name(name)):
+        return "도시 이름은 1~40자여야 한다"
+    if not await run_in_threadpool(db.set_location, _caller(), device_id, city, latitude, longitude):
+        return f"{device_id}번 보드의 주인이 아니거나 그런 보드가 없다"
+    await run_in_threadpool(_load_locations)
+    return f"{device_id}번 보드의 날씨 위치를 {city} ({latitude}, {longitude}) 로 설정했다"
 
 
 @mcp.tool()
-def get_weather_location() -> str:
-    """현재 설정된 날씨 위치를 반환한다 ('이름 (위도, 경도)')."""
-    return f"{_location['name']} ({_location['lat']}, {_location['lon']})"
+async def rename_device(device_id: int, name: str) -> str:
+    """보드 이름을 바꾼다 (예: '거실'). 보드의 주인만 바꿀 수 있다.
+
+    Args:
+        device_id: 보드 번호 (`get_weather_location` 이 보여주는 첫 칸).
+        name: 새 이름.
+    """
+    if not (new := _name(name)):
+        return "보드 이름은 1~40자여야 한다"
+    if not await run_in_threadpool(db.rename_device, _caller(), device_id, new):
+        return f"{device_id}번 보드의 주인이 아니거나 그런 보드가 없다"
+    return f"{device_id}번 보드 이름을 '{new}' 로 바꿨다"
 
 
 @mcp.tool()
@@ -245,13 +266,7 @@ async def search_location(query: str, count: int = 5) -> str:
     )
 
 
-# --- ESP32 polling 용 일반 HTTP 엔드포인트 -------------------------------------
-@mcp.custom_route("/led", methods=["GET"])
-async def led_state(request: Request) -> PlainTextResponse:
-    """ESP32 가 주기적으로 조회하는 현재 LED 상태. 본문은 1바이트: '1' = on, '0' = off."""
-    return PlainTextResponse("1" if _led_on else "0")
-
-
+# --- 보드와 Fly 가 부르는 HTTP 경로 ---------------------------------------------
 @mcp.custom_route("/health", methods=["GET"])
 async def health(request: Request) -> PlainTextResponse:
     """Fly.io 헬스체크용."""
@@ -285,8 +300,8 @@ def _stamp(utc_offset_seconds: int) -> str:
     return f"{WEEKDAY[t.weekday()]} {t.hour:02d}:{t.minute:02d}"
 
 
-async def _weather_body() -> tuple[dict, int, dict]:
-    """날씨 본문과 상태코드, 그리고 그 보고와 함께 DB 에 남길 날씨.
+async def _weather_body(loc: dict) -> tuple[dict, int, dict]:
+    """loc 의 날씨 본문과 상태코드, 그리고 그 보고와 함께 DB 에 남길 날씨.
 
     수치는 숫자로 보낸다. `°C` 나 `km/h` 는 표시 결정이라 기기가 붙인다. 조회에
     실패하면 날씨 키를 통째로 빼고 도시만 남긴다 — 줄 단위 포맷과 달리 JSON 은
@@ -295,7 +310,6 @@ async def _weather_body() -> tuple[dict, int, dict]:
     DB 에는 반올림하기 전 값과 날씨 코드를 남긴다. 반올림과 한글 설명은 화면을 위한 것이라
     언제든 다시 만들 수 있다. 조회에 실패하면 DB 쪽은 통째로 비운다.
     """
-    loc = dict(_location)  # 요청 처리 중 위치가 바뀌어도 한 응답 안에서는 일관되게.
     url = ("https://api.open-meteo.com/v1/forecast"
            f"?latitude={loc['lat']}&longitude={loc['lon']}"
            "&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m"
@@ -327,13 +341,6 @@ async def _weather_body() -> tuple[dict, int, dict]:
         return ({"city": loc["name"]}, 500, {})
 
 
-@mcp.custom_route("/weather", methods=["GET"])
-async def weather(request: Request) -> JSONResponse:
-    """브라우저나 curl 로 확인할 때 쓰는 읽기 전용 경로. 기기는 POST 를 쓴다."""
-    body, status, _ = await _weather_body()
-    return JSONResponse(body, status_code=status)
-
-
 @mcp.custom_route("/weather", methods=["POST"])
 async def weather_report(request: Request) -> JSONResponse:
     """기기가 wake 마다 부르는 경로. 상태 보고를 받고 날씨를 응답한다.
@@ -363,7 +370,8 @@ async def weather_report(request: Request) -> JSONResponse:
     # 받은 그대로도 남긴다. 서버가 아직 모르는 항목을 나중에 칸으로 뽑을 때 옛 보고에서도 채우려고.
     row["raw"] = {k: v for k, v in report.items() if k not in _SECRET_KEYS}
 
-    body, status, weather = await _weather_body()
+    # MAC 을 안 보내는 보드는 None 키로 찾는다 (devices 의 MAC 빈 행)
+    body, status, weather = await _weather_body(_locations.get(row.get("mac"), _DEFAULT_LOCATION))
     row.update(weather)
     _append_report(row)
 
@@ -425,4 +433,6 @@ async def dashboard_page(request: Request):
 
 
 if __name__ == "__main__":
+    # 위치 사본을 미리 채운다. 따로 스레드에서 읽으니 DB 가 느려도 서버는 바로 뜬다
+    threading.Thread(target=_load_locations, daemon=True).start()
     mcp.run(transport="streamable-http")
