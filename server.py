@@ -631,7 +631,9 @@ _NOTICES = {
     "share_declined": "공유 요청을 거절했습니다.",
     "left": "공유받던 보드를 목록에서 뺐습니다.",
     "not_answered": "이미 처리된 요청입니다.",
-    "not_shared": "공유하지 못했습니다. 내가 주인인 보드만, 나 아닌 사람에게 공유할 수 있습니다.",
+    # 공유 버튼은 내 보드에만 있어서, 이건 페이지를 띄워 둔 사이에 보드가 바뀐 경우(등록 해제, 예전 기록 합치기 등)다.
+    "not_shared": "공유하지 못했습니다. 페이지를 새로고침한 뒤 다시 해 주세요.",
+    "self_share": "내 이메일로는 공유할 수 없습니다.",
     "email_not_found": "이메일 주소를 찾을 수 없습니다.",
     "share_error": "지금은 공유할 수 없습니다. 잠시 뒤에 다시 해 주세요.",
     "unshared": "공유를 취소했습니다.",
@@ -813,7 +815,9 @@ async def dashboard_share(request: Request) -> RedirectResponse:
         return RedirectResponse("/dashboard?notice=share_error", status_code=303)
     if not viewer:
         return RedirectResponse("/dashboard?notice=email_not_found", status_code=303)
-    done = viewer != user and await run_in_threadpool(db.share_device, user, device_id, viewer, email)
+    if viewer == user:
+        return RedirectResponse("/dashboard?notice=self_share", status_code=303)
+    done = await run_in_threadpool(db.share_device, user, device_id, viewer, email)
     return RedirectResponse(f"/dashboard?notice={'shared' if done else 'not_shared'}", status_code=303)
 
 
