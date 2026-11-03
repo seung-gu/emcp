@@ -134,6 +134,13 @@ def user_exists(user_id: str) -> bool | None:
         return None
 
 
+def user_id_for_email(email: str) -> str | None:
+    """그 이메일로 가입한 계정의 사용자 ID. 없으면 None. WorkOS 에 닿지 못하면 WorkOSError 가 난다. 공유할 때만
+    부른다."""
+    users = _workos().user_management.list_users(email=email, limit=1).data
+    return users[0].id if users else None
+
+
 def user_email(user_id: str) -> str | None:
     """WorkOS 에 있는 그 사람의 이메일. 보드에 주인 이메일로 남겨, 계정을 지웠다 다시 만든 같은 사람에게만
     예전 기록을 가져올지 묻는 데 쓴다. 이메일로 사람을 구분하지는 않는다. 못 가져오면 None 이고, 그러면 등록은

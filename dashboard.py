@@ -284,30 +284,87 @@ def _location_form(b: dict) -> str:
             '<ul class="places"></ul><button type="submit" disabled>저장</button></form></details>')
 
 
-def _boards_section(boards: list[dict], pending: list[dict], notice: str | None, prefill: str | None,
-                    history: list[dict]) -> str:
-    """내 보드 목록과 이름·위치 바꾸기, 등록 해제 버튼, 보드 추가(등록 코드 입력 칸), 입력해 두고 보드를 기다리는
-    코드. 예전 기록을 가져올 수 있는 보드에는 그 아래에 묻는 줄을 붙인다. 보드 이름과 도시는 사람이 정한 글자라
-    이스케이프한다. 코드는 server.py 가 정한 글자만 통과한다."""
-    offers = {h["device_id"]: h for h in history}
-    lines = []
-    for b in boards:
+def _share_form(b: dict, shared: list[dict]) -> str:
+    """공유. 공유한 이메일마다 상태(수락 대기 / 공유 중)와 취소 버튼, 그 아래 새 이메일 칸. 이메일은 사람이 넣은
+    글자라 이스케이프한다."""
+    items = []
+    for s in shared:
+        email = html.escape(s["email"], quote=True)
+        state = "공유 중" if s["accepted"] else "수락 대기"
+        items.append(f'<li>{email}<span class="dim">{state}</span>'
+                     '<form method="post" action="/dashboard/unshare">'
+                     f'<input type="hidden" name="device_id" value="{b["id"]}">'
+                     f'<input type="hidden" name="email" value="{email}">'
+                     '<button type="submit">취소</button></form></li>')
+    listing = f'<ul class="shares">{"".join(items)}</ul>' if items else ""
+    return ('<details class="edit"><summary>공유' + (f" {len(shared)}" if shared else "") + '</summary>'
+            + listing
+            + '<form method="post" action="/dashboard/share">'
+            f'<input type="hidden" name="device_id" value="{b["id"]}">'
+            '<input name="email" type="email" maxlength="254" required placeholder="친구 이메일"'
+            ' aria-label="공유할 이메일"><button type="submit">공유하기</button></form>'
+            '<p class="note">가입한 사람의 이메일을 넣으면 그 사람에게 공유 요청이 갑니다. 그 사람이 수락하면'
+            ' 이 보드를 볼 수 있습니다. 바꾸기는 주인만 할 수 있습니다.</p>'
+            '</details>')
+
+
+def _incoming(requests: list[dict]) -> str:
+    """받은 공유 요청. 수락해야 그 보드가 보인다. 이름과 이메일은 사람이 정한 글자라 이스케이프한다."""
+    items = []
+    for r in requests:
+        board = html.escape(r["name"] or r["mac"] or "이름 없는 보드")
+        owner = html.escape(r["owner_email"] or "알 수 없는 사람")
+        def button(choice: str, label: str) -> str:
+            return (f'<form method="post" action="/dashboard/share-answer"><input type="hidden" name="device_id"'
+                    f' value="{r["id"]}"><input type="hidden" name="choice" value="{choice}">'
+                    f'<button type="submit">{label}</button></form>')
+        items.append(f'<li>{owner} 님이 \'{board}\' 보드를 공유하려고 합니다. '
+                     f'{button("accept", "수락")}{button("decline", "거절")}</li>')
+    return f'<ul class="incoming">{"".join(items)}</ul>' if items else ""
+
+
+def _shared_section(shared: list[dict], incoming: list[dict]) -> str:
+    """공유받은 보드와 받은 공유 요청. 내 보드와 섞지 않고 따로 보여 준다. 둘 다 없으면 칸을 그리지 않는다.
+    이름, 도시, 이메일은 사람이 정한 글자라 이스케이프한다."""
+    if not shared and not incoming:
+        return ""
+    rows = []
+    for b in shared:
         where = html.escape(b["city"]) if b["city"] else '<span class="dim">기본값</span>'
-        owner = b["role"] == "owner"
+        state = "" if b["registered"] else ' <span class="dim">(등록 안 됨)</span>'
+        leave = ('<form method="post" action="/dashboard/leave" onsubmit="return confirm('
+                 "'이 보드를 목록에서 뺄까요? 다시 보려면 주인이 공유를 다시 요청해야 합니다.')\">"
+                 f'<input type="hidden" name="device_id" value="{b["id"]}">'
+                 '<button type="submit">목록에서 빼기</button></form>')
+        rows.append(f"<tr><td>{_board(b['name'], b['mac']) or 'MAC 없음'}{state}</td><td>{where}</td>"
+                    f"<td>{html.escape(b.get('owner_email') or '알 수 없음')}</td><td>{leave}</td></tr>")
+    table = ('<table class="boards"><tr><th>보드</th><th>날씨 위치</th><th>주인</th><th></th></tr>'
+             + "".join(rows) + "</table>") if rows else ""
+    return "<h2>공유받은 보드</h2>" + _incoming(incoming) + table
+
+
+def _boards_section(boards: list[dict], pending: list[dict], notice: str | None, prefill: str | None,
+                    history: list[dict], shares: dict, incoming: list[dict]) -> str:
+    """내 보드 목록과 이름·위치 바꾸기, 공유, 등록 해제 버튼, 보드 추가(등록 코드 입력 칸), 입력해 두고 보드를
+    기다리는 코드. 예전 기록을 가져올 수 있는 보드에는 그 아래에 묻는 줄을 붙인다. 공유받은 보드는 그 아래 따로
+    보여 준다. 보드 이름과 도시는 사람이 정한 글자라 이스케이프한다. 코드는 server.py 가 정한 글자만 통과한다."""
+    offers = {h["device_id"]: h for h in history}
+    own = [b for b in boards if b["role"] == "owner"]
+    lines = []
+    for b in own:
+        where = html.escape(b["city"]) if b["city"] else '<span class="dim">기본값</span>'
         if not b["registered"]:
-            state, action = '<span class="dim">등록 안 됨</span>', ""
-        elif not owner:
-            state, action = "등록됨 (공유받음)", ""
+            state, action = '<span class="dim">등록 안 됨</span>', _share_form(b, shares.get(b["id"], []))
         else:
             state = "등록됨"
-            action = (
+            action = _share_form(b, shares.get(b["id"], [])) + (
                 '<form method="post" action="/dashboard/release" onsubmit="return confirm('
                 "'이 보드의 등록을 해제할까요? 보드는 다음 보고 때 새 코드를 띄우고, 지난 기록은 계속 볼 수 있습니다.')\">"
                 f'<input type="hidden" name="device_id" value="{b["id"]}">'
                 '<button type="submit">등록 해제</button></form>'
             )
-        name_cell = (_board(b["name"], b["mac"]) or "MAC 없음") + (_rename_form(b) if owner else "")
-        where_cell = where + (_location_form(b) if owner else "")
+        name_cell = (_board(b["name"], b["mac"]) or "MAC 없음") + _rename_form(b)
+        where_cell = where + _location_form(b)
         lines.append(f"<tr><td>{name_cell}</td><td>{where_cell}</td><td>{state}</td><td>{action}</td></tr>")
         if b["id"] in offers:
             lines.append(_history_offer(offers[b["id"]]))
@@ -323,7 +380,7 @@ def _boards_section(boards: list[dict], pending: list[dict], notice: str | None,
         for p in pending
     )
     # 보드 추가 칸은 접어 둔다. 보드가 아직 없거나, QR 로 와서 코드가 채워졌거나, 기다리는 코드가 있으면 편다.
-    add_open = " open" if (not boards or prefill or waiting) else ""
+    add_open = " open" if (not own or prefill or waiting) else ""
     return (
         (f'<p class="notice">{notice}</p>' if notice else "")
         + "<h2>내 보드</h2>" + table
@@ -336,11 +393,13 @@ def _boards_section(boards: list[dict], pending: list[dict], notice: str | None,
           ' 누르세요.</p>'
         + (f'<ul class="waiting">{waiting}</ul>' if waiting else "")
         + "</details>"
+        + _shared_section([b for b in boards if b["role"] != "owner"], incoming)
     )
 
 
 def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pending: list[dict] = (),
-           notice: str | None = None, prefill: str | None = None, history: list[dict] = ()) -> str:
+           notice: str | None = None, prefill: str | None = None, history: list[dict] = (),
+           shares: dict | None = None, incoming: list[dict] = ()) -> str:
     # 보드별로 나눠야 하는 처리(_attach_awake)는 전체를 대상으로 한 뒤에 거른다.
     _drop_bad_battery(rows)
     _attach_awake(rows)
@@ -383,7 +442,8 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
             + f" / {len(knows)}건" if tally else f"{len(knows)}건 전부 정상"))
 
     return _TEMPLATE.substitute(
-        boards=_boards_section(list(boards), list(pending), notice, prefill, list(history)),
+        boards=_boards_section(list(boards), list(pending), notice, prefill, list(history), shares or {},
+                               list(incoming)),
         devices=devices,
         mac_th="" if mac else "<th>보드</th>",
         sub=" · ".join(bits),

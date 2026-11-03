@@ -177,6 +177,10 @@ MIGRATIONS = [
     "ALTER TABLE claim_codes ADD COLUMN email TEXT",
     # 그 보고 때 날씨를 받은 위치의 시간대(IANA 이름, 예: Europe/Berlin). 대시보드가 시각을 현지 시각으로 보여 준다.
     "ALTER TABLE reports ADD COLUMN timezone TEXT",
+    # 공유: 주인이 친구 이메일로 공유를 요청하고, 받는 사람이 수락해야(accepted) 보인다. 주인 줄과 지금까지의
+    # 줄은 모두 수락한 것으로 둔다. email 은 누구인지 화면에 보여 주는 용도로만 적어 둔다(주인 줄은 등록할 때,
+    # 공유받은 사람 줄은 공유할 때). 사람은 여전히 user_id 로 구분한다.
+    "ALTER TABLE device_access ADD COLUMN accepted BOOLEAN NOT NULL DEFAULT true, ADD COLUMN email TEXT",
 ]
 
 _migrated = False
@@ -326,7 +330,8 @@ def _new_entries(row: dict, before: list) -> list:
 def devices_for(conn: psycopg.Connection, user_id: str) -> list[int]:
     """이 사람이 볼 수 있는 보드 (주인이거나 공유받은 것). 사람이 보고를 읽는 조회는 모두 이걸 거친다 —
     조건을 핸들러마다 따로 쓰면 하나만 빠뜨려도 에러 없이 남의 데이터가 나간다."""
-    rows = conn.execute("SELECT device_id FROM device_access WHERE user_id = %s", (user_id,)).fetchall()
+    rows = conn.execute("SELECT device_id FROM device_access WHERE user_id = %s AND accepted",
+                        (user_id,)).fetchall()
     return [r["device_id"] for r in rows]
 
 
@@ -335,13 +340,15 @@ _OWNED_BY = "id IN (SELECT device_id FROM device_access WHERE user_id = %s AND r
 
 
 def list_devices(user_id: str) -> list[dict]:
-    """이 사람이 볼 수 있는 보드의 번호, 이름, MAC, 위치, 역할, 토큰으로 등록됐는지(registered)."""
+    """이 사람이 볼 수 있는 보드의 번호, 이름, MAC, 위치, 역할, 토큰으로 등록됐는지(registered), 주인의
+    이메일(owner_email, 공유받은 보드에 주인을 보여 줄 때 씀)."""
     with _connect() as conn:
         return conn.execute(
             "SELECT d.id, d.name, d.mac, d.city, d.lat, d.lon, a.role,"
-            " d.token_hash IS NOT NULL AS registered"
+            " d.token_hash IS NOT NULL AS registered, coalesce(o.email, d.owner_email) AS owner_email"
             " FROM devices d JOIN device_access a ON a.device_id = d.id"
-            " WHERE a.user_id = %s ORDER BY d.id",
+            " LEFT JOIN device_access o ON o.device_id = d.id AND o.role = 'owner'"
+            " WHERE a.user_id = %s AND a.accepted ORDER BY d.id",
             (user_id,),
         ).fetchall()
 
@@ -429,11 +436,13 @@ def _link(conn: psycopg.Connection, code: str, user_id: str, email: str | None, 
         device_id = row["id"]
         conn.execute("UPDATE devices SET token_hash = %s, owner_email = coalesce(%s, owner_email) WHERE id = %s",
                      (token_hash, email, device_id))
+        conn.execute("UPDATE device_access SET email = coalesce(%s, email) WHERE device_id = %s AND user_id = %s",
+                     (email, device_id, user_id))
     else:
         device_id = conn.execute("INSERT INTO devices (mac, token_hash, owner_email) VALUES (%s, %s, %s)"
                                  " RETURNING id", (mac, token_hash, email)).fetchone()["id"]
-        conn.execute("INSERT INTO device_access (device_id, user_id, role) VALUES (%s, %s, 'owner')",
-                     (device_id, user_id))
+        conn.execute("INSERT INTO device_access (device_id, user_id, role, email) VALUES (%s, %s, 'owner', %s)",
+                     (device_id, user_id, email))
     conn.execute("DELETE FROM claim_codes WHERE code = %s", (code,))
     return "registered", device_id
 
@@ -511,6 +520,76 @@ def release_device(user_id: str, device_id: int) -> bool:
         cur = conn.execute(f"UPDATE devices SET token_hash = NULL WHERE id = %s AND token_hash IS NOT NULL"
                            f" AND {_OWNED_BY}", (device_id, user_id))
         return cur.rowcount == 1
+
+
+# --- 공유 ---
+# 주인만 공유하고 취소한다. 공유받은 사람(viewer)은 보고를 보기만 하고 보드를 바꾸지 못한다.
+
+def share_device(owner_id: str, device_id: int, viewer_id: str, email: str) -> bool:
+    """주인이면 그 계정에 공유를 요청한다. 받는 사람이 수락하기 전에는 아무것도 보이지 않는다. 이미 요청했거나
+    공유 중이면 그대로 둔다."""
+    with _connect() as conn:
+        if not conn.execute(f"SELECT 1 FROM devices WHERE id = %s AND {_OWNED_BY}", (device_id, owner_id)).fetchone():
+            return False
+        conn.execute("INSERT INTO device_access (device_id, user_id, role, accepted, email)"
+                     " VALUES (%s, %s, 'viewer', false, %s) ON CONFLICT DO NOTHING", (device_id, viewer_id, email))
+        return True
+
+
+def incoming_shares(user_id: str) -> list[dict]:
+    """이 사람에게 온, 아직 수락하지 않은 공유 요청. 보드 이름과 MAC, 요청한 주인의 이메일."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT d.id, d.name, d.mac, coalesce(o.email, d.owner_email) AS owner_email FROM device_access a"
+            " JOIN devices d ON d.id = a.device_id"
+            " LEFT JOIN device_access o ON o.device_id = a.device_id AND o.role = 'owner'"
+            " WHERE a.user_id = %s AND a.role = 'viewer' AND NOT a.accepted ORDER BY d.id",
+            (user_id,),
+        ).fetchall()
+
+
+def answer_share(user_id: str, device_id: int, accept: bool) -> bool:
+    """받은 공유 요청을 수락하거나 거절한다. 거절하면 요청이 사라진다."""
+    with _connect() as conn:
+        if accept:
+            cur = conn.execute("UPDATE device_access SET accepted = true WHERE device_id = %s AND user_id = %s"
+                               " AND role = 'viewer' AND NOT accepted", (device_id, user_id))
+        else:
+            cur = conn.execute("DELETE FROM device_access WHERE device_id = %s AND user_id = %s"
+                               " AND role = 'viewer' AND NOT accepted", (device_id, user_id))
+        return cur.rowcount == 1
+
+
+def leave_share(user_id: str, device_id: int) -> bool:
+    """공유받던 보드를 내 목록에서 뺀다. 주인 보드는 뺄 수 없다."""
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM device_access WHERE device_id = %s AND user_id = %s AND role = 'viewer'",
+                           (device_id, user_id))
+        return cur.rowcount == 1
+
+
+def unshare_device(owner_id: str, device_id: int, email: str) -> bool:
+    """주인이면 그 이메일 사람의 보기 권한을 지운다."""
+    with _connect() as conn:
+        if not conn.execute(f"SELECT 1 FROM devices WHERE id = %s AND {_OWNED_BY}", (device_id, owner_id)).fetchone():
+            return False
+        conn.execute("DELETE FROM device_access WHERE device_id = %s AND role = 'viewer' AND email = %s",
+                     (device_id, email))
+        return True
+
+
+def shares_of(owner_id: str) -> dict[int, list[dict]]:
+    """주인인 보드마다 공유한 사람의 이메일과 수락했는지."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT a.device_id, a.email, a.accepted FROM device_access a"
+            " WHERE a.role = 'viewer' AND a.device_id IN"
+            " (SELECT device_id FROM device_access WHERE user_id = %s AND role = 'owner') ORDER BY 1, 2",
+            (owner_id,)).fetchall()
+    out: dict[int, list[dict]] = {}
+    for r in rows:
+        out.setdefault(r["device_id"], []).append({"email": r["email"], "accepted": r["accepted"]})
+    return out
 
 
 def forget_user(user_id: str) -> list[int]:

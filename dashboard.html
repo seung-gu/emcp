@@ -83,6 +83,16 @@
   .places { list-style: none; margin: 0; padding: 0; }
   .places li { padding: 2px 0; }
   .places .dim { margin-left: 0; }
+  .shares { list-style: none; margin: 6px 0 0; padding: 0; }
+  .shares li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .shares .dim { margin-left: 2px; }
+  table.boards input[name="email"] {
+    font: inherit; font-size: .85rem; width: 14em; padding: 2px 8px; color: inherit; background: none;
+    border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
+  .incoming { list-style: none; margin: 0 0 16px; padding: 8px 12px; font-size: .875rem;
+              border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
+  .incoming li { padding: 2px 0; }
+  .incoming form { display: inline; margin-left: 6px; }
   details.add { margin: 12px 0 0; }
   details.add summary { font-size: .85rem; }
   table.boards .dim { margin-left: 0; }
@@ -92,10 +102,10 @@
   .claim input { font: inherit; font-size: .9rem; width: 9em; padding: 3px 10px; color: inherit;
                  background: none; border: 1px solid rgba(128,128,128,.45); border-radius: 6px;
                  letter-spacing: .08em; text-transform: uppercase; }
-  .boards button, .claim button { font: inherit; font-size: .78rem; color: inherit; background: none;
+  .boards button, .claim button, .incoming button { font: inherit; font-size: .78rem; color: inherit; background: none;
                                   padding: 3px 10px; border: 1px solid rgba(128,128,128,.35);
                                   border-radius: 999px; cursor: pointer; }
-  .boards button:hover, .claim button:hover { border-color: currentColor; }
+  .boards button:hover, .claim button:hover, .incoming button:hover { border-color: currentColor; }
   .waiting { margin: 8px 0 0; padding-left: 22px; font-size: .85rem; }
 </style>
 </head>
@@ -473,6 +483,17 @@ $logs
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", build);
   }
   build();
+})();
+</script>
+<script>
+// 안내(?notice=)와 QR 로 채운 코드(?code=)는 한 번만 보이게, 화면에 그린 뒤 주소창에서 지운다. 새로고침하면
+// 깨끗한 /dashboard 가 열린다. 보드 고르기(?mac=)는 남긴다.
+(function () {
+  var url = new URL(location.href);
+  if (!url.searchParams.has("notice") && !url.searchParams.has("code")) return;
+  url.searchParams.delete("notice");
+  url.searchParams.delete("code");
+  history.replaceState(null, "", url.pathname + url.search + url.hash);
 })();
 </script>
 <script>

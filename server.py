@@ -626,6 +626,15 @@ _NOTICES = {
     "not_renamed": "이름은 1~40자여야 하고, 내가 주인인 보드만 바꿀 수 있습니다.",
     "located": "날씨 위치를 바꿨습니다. 보드가 다음에 깨어날 때(30분 안) 화면에 반영됩니다.",
     "not_located": "위치를 바꾸지 못했습니다. 검색한 후보 중 하나를 골라 주세요.",
+    "shared": "공유를 요청했습니다. 상대가 대시보드에서 수락하면 이 보드가 보입니다.",
+    "share_accepted": "공유를 수락했습니다. 이제 이 보드가 보입니다.",
+    "share_declined": "공유 요청을 거절했습니다.",
+    "left": "공유받던 보드를 목록에서 뺐습니다.",
+    "not_answered": "이미 처리된 요청입니다.",
+    "not_shared": "공유하지 못했습니다. 내가 주인인 보드만, 나 아닌 사람에게 공유할 수 있습니다.",
+    "email_not_found": "이메일 주소를 찾을 수 없습니다.",
+    "share_error": "지금은 공유할 수 없습니다. 잠시 뒤에 다시 해 주세요.",
+    "unshared": "공유를 취소했습니다.",
 }
 
 
@@ -650,6 +659,18 @@ async def _signed_in(request: Request) -> str | None:
     return user if alive else None
 
 
+
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def _email(v) -> str | None:
+    """사람이 넣은 이메일. 앞뒤 공백을 떼고 소문자로 맞춘다. 모양이 아니면 None."""
+    if not isinstance(v, str):
+        return None
+    v = v.strip().lower()
+    return v if len(v) <= 254 and _EMAIL_RE.fullmatch(v) else None
+
+
 @mcp.custom_route("/dashboard", methods=["GET"])
 async def dashboard_page(request: Request):
     """로그인한 사람이 볼 수 있는 보드의 보고를 훑어보고, 보드를 등록하거나 등록을 해제하는 페이지.
@@ -667,11 +688,14 @@ async def dashboard_page(request: Request):
     boards = await run_in_threadpool(db.list_devices, user)
     pending = await run_in_threadpool(db.pending_codes, user)
     history = await run_in_threadpool(db.previous_history, user)
+    shares = await run_in_threadpool(db.shares_of, user)
+    incoming = await run_in_threadpool(db.incoming_shares, user)
     # QR 로 왔으면 코드를 입력 칸에 채운다. 로그인을 거쳐 왔으면 /r 이 쿠키에 맡겨 둔 코드다.
     prefill = _code(request.query_params.get("code")) or _code(request.cookies.get("emcp_claim"))
     notice = _NOTICES.get(request.query_params.get("notice", "")) or (prefill and _NOTICES["prefilled"])
     response = HTMLResponse(dashboard.render(rows, _tag(request.query_params.get("mac")), boards=boards,
-                                             pending=pending, notice=notice, prefill=prefill, history=history))
+                                             pending=pending, notice=notice, prefill=prefill, history=history,
+                                             shares=shares, incoming=incoming))
     if "emcp_claim" in request.cookies:
         response.delete_cookie("emcp_claim")
     return response
@@ -770,6 +794,63 @@ async def dashboard_location(request: Request) -> RedirectResponse:
     if done:
         await run_in_threadpool(_load_devices)
     return RedirectResponse(f"/dashboard?notice={'located' if done else 'not_located'}", status_code=303)
+
+
+# 공유: 주인이 친구 이메일로 공유를 요청한다. 그 이메일의 계정은 WorkOS 에 한 번 물어서 찾는다.
+@mcp.custom_route("/dashboard/share", methods=["POST"])
+async def dashboard_share(request: Request) -> RedirectResponse:
+    user = await _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    device_id, email = _int(form.get("device_id")), _email(form.get("email"))
+    if device_id is None or not email:
+        return RedirectResponse("/dashboard?notice=email_not_found", status_code=303)
+    try:
+        viewer = await run_in_threadpool(auth.user_id_for_email, email)
+    except Exception as e:
+        print(f"looking up {email} failed: {e!r}", flush=True)
+        return RedirectResponse("/dashboard?notice=share_error", status_code=303)
+    if not viewer:
+        return RedirectResponse("/dashboard?notice=email_not_found", status_code=303)
+    done = viewer != user and await run_in_threadpool(db.share_device, user, device_id, viewer, email)
+    return RedirectResponse(f"/dashboard?notice={'shared' if done else 'not_shared'}", status_code=303)
+
+
+@mcp.custom_route("/dashboard/share-answer", methods=["POST"])
+async def dashboard_share_answer(request: Request) -> RedirectResponse:
+    """받은 공유 요청에 수락(choice=accept) 또는 거절."""
+    user = await _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    device_id, accept = _int(form.get("device_id")), form.get("choice") == "accept"
+    done = device_id is not None and await run_in_threadpool(db.answer_share, user, device_id, accept)
+    notice = ("share_accepted" if accept else "share_declined") if done else "not_answered"
+    return RedirectResponse(f"/dashboard?notice={notice}", status_code=303)
+
+
+@mcp.custom_route("/dashboard/leave", methods=["POST"])
+async def dashboard_leave(request: Request) -> RedirectResponse:
+    """공유받던 보드를 내 목록에서 뺀다."""
+    user = await _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    device_id = _int(form.get("device_id"))
+    done = device_id is not None and await run_in_threadpool(db.leave_share, user, device_id)
+    return RedirectResponse(f"/dashboard?notice={'left' if done else 'not_answered'}", status_code=303)
+
+
+@mcp.custom_route("/dashboard/unshare", methods=["POST"])
+async def dashboard_unshare(request: Request) -> RedirectResponse:
+    user = await _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    device_id, email = _int(form.get("device_id")), _email(form.get("email"))
+    done = device_id is not None and email and await run_in_threadpool(db.unshare_device, user, device_id, email)
+    return RedirectResponse(f"/dashboard?notice={'unshared' if done else 'not_shared'}", status_code=303)
 
 
 @mcp.custom_route("/r/{code}", methods=["GET"])
