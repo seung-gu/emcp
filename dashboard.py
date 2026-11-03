@@ -84,12 +84,13 @@ def _cell(v) -> str:
 
 
 def _board(name: str | None, mac: str | None) -> str:
-    """보드 표시. 이름이 있으면 이름을 보이고 마우스를 올리면 MAC 이 뜬다. 이름은 사람이 정한 글자라
+    """보드 표시. 이름이 있으면 이름을 보이고 마우스를 올리면 바로 MAC 이 뜬다 (dashboard.html 의
+    .board). 브라우저 기본 툴팁(title)은 1초쯤 가만히 있어야 떠서 쓰지 않는다. 이름은 사람이 정한 글자라
     이스케이프한다. MAC 은 server.py 가 이미 걸러서 넣는다."""
     if not name:
         return _cell(mac)
-    title = f' title="{mac}"' if mac else ""
-    return f"<span{title}>{html.escape(name)}</span>"
+    data_mac = f' data-mac="{mac}"' if mac else ""
+    return f'<span class="board"{data_mac}>{html.escape(name)}</span>'
 
 
 def _reset_cell(code) -> str:

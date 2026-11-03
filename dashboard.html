@@ -52,8 +52,16 @@
   .devices { display: flex; flex-wrap: wrap; gap: 6px; margin: -16px 0 24px; }
   .devices a { font-size: .78rem; text-decoration: none; color: inherit; padding: 3px 9px;
                border: 1px solid rgba(128,128,128,.35); border-radius: 999px; opacity: .65; }
-  .devices a.on { opacity: 1; border-color: currentColor; font-weight: 600; }
+  .devices a.on, .devices a:hover { opacity: 1; border-color: currentColor; }
+  .devices a.on { font-weight: 600; }
   .devices .dim { margin-left: 6px; }
+  /* 이름이 있는 보드에 마우스를 올리면 바로 아래에 MAC 을 띄운다. 보드 버튼은 버튼 어디에 올려도 뜬다. */
+  .board[data-mac] { position: relative; }
+  .board[data-mac]:hover::after, .devices a:hover .board[data-mac]::after {
+    content: attr(data-mac); position: absolute; left: 0; top: 100%; margin-top: 6px; z-index: 30;
+    padding: 2px 7px; font-size: .74rem; font-weight: 400; white-space: nowrap; background: Canvas;
+    color: CanvasText; border: 1px solid rgba(128,128,128,.5); border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.15); font-variant-numeric: tabular-nums; }
   .logs { margin: 10px 0 16px; font-size: .85rem; }
   .logs ol { margin: 4px 0 0; padding-left: 22px; }
   .logs li { padding: 1px 0; }
