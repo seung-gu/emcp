@@ -216,12 +216,7 @@ WHERE a.user_id = 'user_01ABC';
 
 ## 테이블
 
-```text
-devices        id, token_hash, mac, name, city, lat, lon
-device_access  device_id, user_id, role
-claim_codes    code, user_id, expires_at
-reports        id, device_id, at, data (JSONB)
-```
+테이블과 칸은 [data-structure.ko.md](data-structure.ko.md)에 정리했습니다.
 
 `users`, `sessions`, OAuth 테이블은 만들지 않습니다. 계정과 로그인은 WorkOS가 관리합니다.
 
