@@ -336,7 +336,7 @@ def read_reports(user_id: str) -> list[dict]:
     sensor_cols = ", ".join(f"s.{k}" for k in SENSOR_FIELDS)
     with _connect() as conn:
         rows = conn.execute(
-            f"SELECT r.*, d.mac, {sensor_cols},"
+            f"SELECT r.*, d.mac, d.name AS device_name, {sensor_cols},"
             "  (SELECT jsonb_agg(to_jsonb(w) - 'report_id' - 'idx' ORDER BY w.idx)"
             "     FROM wake_logs w WHERE w.report_id = r.id) AS log"
             " FROM reports r JOIN devices d ON d.id = r.device_id"

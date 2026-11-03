@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 from collections import Counter
 from datetime import datetime
@@ -71,14 +72,24 @@ def _plot_data(rows: list[dict], mac: str | None, nvs_total: int | None) -> str:
     }
     if not mac:
         data["mac"] = [r.get("mac") for r in rows]
+        data["name"] = [r.get("device_name") for r in rows]
     if nvs_total:
         data["fixed"]["nvs_used"] = [0, nvs_total]
-    # 값 안에 </script> 가 있으면 태그가 거기서 닫힌다.
-    return json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    # 보드 이름은 사람이 정한 글자다. 값 안의 </script> 나 <!-- 가 script 태그를 깨지 않게 < 를 모두 바꾼다.
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
 
 
 def _cell(v) -> str:
     return "" if v is None else str(v)
+
+
+def _board(name: str | None, mac: str | None) -> str:
+    """보드 표시. 이름이 있으면 이름을 보이고 마우스를 올리면 MAC 이 뜬다. 이름은 사람이 정한 글자라
+    이스케이프한다. MAC 은 server.py 가 이미 걸러서 넣는다."""
+    if not name:
+        return _cell(mac)
+    title = f' title="{mac}"' if mac else ""
+    return f"<span{title}>{html.escape(name)}</span>"
 
 
 def _reset_cell(code) -> str:
@@ -196,13 +207,13 @@ def _device_links(rows: list[dict], mac: str | None) -> str:
     seen = {}
     for r in rows:
         if r.get("mac"):
-            seen[r["mac"]] = r["received_at"]
+            seen[r["mac"]] = (r["received_at"], r.get("device_name"))
     if not seen:
         return ""
     links = [f'<a href="/dashboard"{" class=\'on\'" if not mac else ""}>전체</a>']
-    for m, at in sorted(seen.items()):
+    for m, (at, name) in sorted(seen.items()):
         on = " class='on'" if m == mac else ""
-        links.append(f'<a href="/dashboard?mac={m}"{on}>{m}<span class="dim">{_hhmm(at)}</span></a>')
+        links.append(f'<a href="/dashboard?mac={m}"{on}>{_board(name, m)}<span class="dim">{_hhmm(at)}</span></a>')
     return f'<p class="devices">{"".join(links)}</p>'
 
 
@@ -216,7 +227,7 @@ def render(rows: list[dict], mac: str | None = None) -> str:
     nvs_total = _attach_nvs(rows)
     recent = rows[-50:][::-1]
     # mac 열은 섞어서 볼 때만. 한 대만 보는 중이면 모든 행이 같은 값이라 자리만 차지한다.
-    mac_cell = (lambda r: "") if mac else (lambda r: f"<td>{_cell(r.get('mac'))}</td>")
+    mac_cell = (lambda r: "") if mac else (lambda r: f"<td>{_board(r.get('device_name'), r.get('mac'))}</td>")
     table = "".join(
         f"<tr><td>{r['received_at'].replace('T', ' ').replace('+00:00', '')}</td>"
         f"{mac_cell(r)}"
