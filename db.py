@@ -166,6 +166,8 @@ MIGRATIONS = [
     """,
     "ALTER TABLE wake_logs ADD COLUMN chip_c DOUBLE PRECISION, ADD COLUMN room_c DOUBLE PRECISION,"
     " ADD COLUMN room_rh DOUBLE PRECISION",
+    # 서버가 기억해 둘 값 몇 개. 지금은 WorkOS 의 계정 삭제를 어디까지 확인했는지 하나뿐이다.
+    "CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 ]
 
 _migrated = False
@@ -441,6 +443,33 @@ def release_device(user_id: str, device_id: int) -> bool:
         cur = conn.execute(f"UPDATE devices SET token_hash = NULL WHERE id = %s AND token_hash IS NOT NULL"
                            f" AND {_OWNED_BY}", (device_id, user_id))
         return cur.rowcount == 1
+
+
+def forget_user(user_id: str) -> list[int]:
+    """지워진 계정을 보드에서 떼어 낸다. 그 사람이 주인인 보드는 토큰을 지워 등록을 해제하고(보드는 다음
+    보고에서 거절당하면 새 코드를 띄운다), 그 사람의 공유와 입력해 둔 코드도 지운다. 지난 보고는 남긴다.
+    해제한 보드 번호를 돌려준다. 두 번 불러도 결과가 같다."""
+    with _connect() as conn, conn.transaction():
+        released = conn.execute(
+            "UPDATE devices SET token_hash = NULL WHERE token_hash IS NOT NULL AND id IN"
+            " (SELECT device_id FROM device_access WHERE user_id = %s AND role = 'owner') RETURNING id",
+            (user_id,),
+        ).fetchall()
+        conn.execute("DELETE FROM device_access WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM claim_codes WHERE user_id = %s", (user_id,))
+    return [r["id"] for r in released]
+
+
+def get_state(key: str) -> str | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT value FROM app_state WHERE key = %s", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_state(key: str, value: str) -> None:
+    with _connect() as conn:
+        conn.execute("INSERT INTO app_state (key, value) VALUES (%s, %s)"
+                     " ON CONFLICT (key) DO UPDATE SET value = excluded.value", (key, value))
 
 
 def read_reports(user_id: str) -> list[dict]:

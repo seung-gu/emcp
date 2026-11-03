@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from functools import cache
 
 import jwt
@@ -118,6 +119,19 @@ def finish_sign_in(started_sealed: str, code: str | None, state: str | None) -> 
         logging.getLogger(__name__).warning("sign-in code exchange failed: %s", e)
         raise SignInError("WorkOS 가 로그인을 끝내지 못했습니다. /dashboard 에서 다시 시작하세요.") from e
     return seal_data({"until": time.time() + SIGN_IN_HOURS * 3600, "sub": result.user.id}, _COOKIE_PASSWORD)
+
+
+def deleted_users_since(start: datetime) -> list[tuple[datetime, str]]:
+    """start 이후 WorkOS 에서 지워진 계정의 (지운 시각, 사용자 ID), 오래된 것부터. 한 번에 100개까지라
+    더 있으면 다음 확인 때 이어서 가져온다."""
+    utc = start.astimezone(timezone.utc)
+    page = _workos().events.list_events(
+        events=["user.deleted"],
+        range_start=utc.strftime("%Y-%m-%dT%H:%M:%S.") + f"{utc.microsecond // 1000:03d}Z",   # WorkOS 가 받는 모양
+        order="asc",
+        limit=100,
+    )
+    return [(e.created_at, e.data.id) for e in page.data]
 
 
 def session_user(session_sealed: str) -> str | None:

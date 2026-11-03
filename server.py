@@ -105,7 +105,35 @@ def _flush_sealed() -> None:
                 return
             os.remove(path)
             print(f"flushed {path}: {result}", flush=True)
+    _forget_deleted_users()
     _load_devices()
+
+
+# WorkOS 에서 지워진 계정의 보드를 해제한다. WorkOS 는 계정이 지워져도 이 서버에 알리지 않으므로, 보고를
+# 옮기는 김에(DB 가 어차피 깨어 있을 때) 그 뒤로 지워진 계정을 물어본다. 대시보드를 열 때도 보고를 옮기니
+# 매번 WorkOS 를 부르지 않게 30분에 한 번만 묻는다. 어디까지 물어봤는지는 DB 에 둬서 재시작과 두 앱 사이에도
+# 이어진다. 처음 켜질 때는 그 전의 삭제를 건너뛰고 그때부터 센다.
+_ACCOUNT_CHECK_SECONDS = 1800
+_last_account_check = float("-inf")
+
+
+def _forget_deleted_users() -> None:
+    global _last_account_check
+    if time.monotonic() - _last_account_check < _ACCOUNT_CHECK_SECONDS:
+        return
+    _last_account_check = time.monotonic()
+    try:
+        since = db.get_state("deleted_users_since")
+        if since is None:
+            db.set_state("deleted_users_since", datetime.now(timezone.utc).isoformat())
+            return
+        for deleted_at, user_id in auth.deleted_users_since(datetime.fromisoformat(since)):
+            released = db.forget_user(user_id)
+            print(f"account deleted: {user_id}, released boards {released}", flush=True)
+            # 1ms 뒤부터 묻는다. WorkOS 는 시작 시각을 포함해서 돌려주므로 같은 삭제를 또 받지 않게.
+            db.set_state("deleted_users_since", (deleted_at + timedelta(milliseconds=1)).isoformat())
+    except Exception as e:
+        print(f"checking deleted accounts failed: {e!r}", flush=True)
 
 
 def _flush_if_due() -> BackgroundTask | None:
