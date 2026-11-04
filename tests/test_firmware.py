@@ -51,7 +51,7 @@ def test_no_offer(client, accounts, released, fields):
 
 
 def test_no_offer_without_a_release(client, accounts):
-    actions._last_firmware_check = float("-inf")
+    actions._firmware_tries = 0
     actions.run_due_jobs()                      # 릴리스가 없으면 404, 받아 둘 것도 없다
     token, _ = register(client, accounts.add("user_me"), MAC)
     assert "ota_version" not in report(client, token, MAC, fw_board="weather-xiao", fw_version=OLD[:7])[1]
@@ -74,13 +74,31 @@ def test_keeps_the_last_release_when_github_fails(released):
     assert firmware.offer("weather-xiao", OLD[:7], 4000) == NEW
 
 
-def test_timer_picks_up_a_new_release(released):
+def test_fetches_once_after_start_then_only_when_told(client, releases):
+    releases.publish([NEW, OLD], {"weather-xiao.bin": XIAO})
+    actions._firmware_tries = 0
+    actions.run_due_jobs()                          # 켜진 뒤 첫 작업
+    assert firmware.current() == NEW
     newer = "e" * 40
-    released.publish([newer, NEW, OLD], {"weather-xiao.bin": b"\xe9new"})
-    actions._last_firmware_check = float("-inf")
-    actions.run_due_jobs()
-    assert firmware.offer("weather-xiao", NEW[:7], 4000) == newer
+    releases.publish([newer, NEW, OLD], {"weather-xiao.bin": b"\xe9new"})
+    asked = releases.requests
+    for _ in range(3):
+        actions.run_due_jobs()
+    assert releases.requests == asked and firmware.current() == NEW   # 다시 묻지 않는다
+    assert client.post("/firmware/refresh").json() == {"commit": newer}
     assert firmware.binary("weather-xiao", newer) == b"\xe9new"
+
+
+def test_start_fetch_gives_up_after_ten_tries(releases):
+    releases.down = True
+    actions._firmware_tries = 0
+    for _ in range(12):
+        with pytest.raises(Exception):
+            actions.run_due_jobs()
+        if actions._firmware_tries == actions._FIRMWARE_TRIES:
+            break
+    actions.run_due_jobs()                          # 열 번 실패한 뒤로는 묻지 않는다
+    assert releases.requests == 10
 
 
 def test_release_workflow_makes_the_server_fetch_now(client, releases):
@@ -97,5 +115,5 @@ def test_refresh_reports_a_failed_fetch(client, released):
 
 
 def test_refreshes_are_limited(client):
-    codes = [client.post("/firmware/refresh").status_code for _ in range(11)]
-    assert codes == [200] * 10 + [429]
+    codes = [client.post("/firmware/refresh").status_code for _ in range(21)]
+    assert codes == [200] * 20 + [429]

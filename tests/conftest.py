@@ -112,11 +112,13 @@ class Releases:
     def __init__(self):
         self.files: dict[str, bytes] = {}
         self.down = False
+        self.requests = 0
 
     def publish(self, commits: list[str], files: dict[str, bytes]) -> None:
         self.files = {"commits.txt": "\n".join(commits).encode(), **files}
 
     def handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests += 1
         if self.down:
             return httpx.Response(500)
         name = request.url.path.removeprefix(urlparse(firmware.LATEST).path)
@@ -203,8 +205,8 @@ def fresh_state():
     web._alive.clear()
     actions._last_flush = time.monotonic()        # 보고가 저절로 옮겨지지 않게. 옮기기 테스트는 직접 부른다
     actions._last_account_check = float("-inf")
-    actions._last_firmware_check = time.monotonic()   # 펌웨어 확인도 테스트가 직접 부른다
-    firmware._release = None
+    actions._firmware_tries = actions._FIRMWARE_TRIES   # 켜질 때 받기도 테스트가 직접 부른다
+    firmware._release, firmware._loaded = None, False
     board_api.ACCEPT_TOKENLESS = False
     devices.load()
 

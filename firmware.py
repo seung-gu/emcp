@@ -5,9 +5,9 @@
 하나(<종류>.bin)와, 릴리스 커밋부터 첫 커밋까지의 SHA 목록(commits.txt)이다. GitHub API 대신 릴리스 파일만
 받으므로 API 횟수 제한에 걸리지 않는다.
 
-릴리스 워크플로가 릴리스를 만든 직후 POST /firmware/refresh 로 알려 주면 그때 바로 받는다. 알림이 실패할 때를
-대비해 타이머도 10분마다 확인한다(actions.run_due_jobs). 보드 요청은 받아 둔 것만 읽어서 GitHub 을 기다리지
-않는다.
+GitHub 에 주기적으로 묻지 않는다. 받는 때는 둘뿐이다. 릴리스 워크플로가 릴리스를 만든 직후 POST
+/firmware/refresh 로 알릴 때, 그리고 서버가 켜질 때 한 번(받아 둔 것이 메모리에만 있어서 재시작하면 비므로.
+actions.run_due_jobs). 보드 요청은 받아 둔 것만 읽어서 GitHub 을 기다리지 않는다.
 """
 
 import re
@@ -23,21 +23,23 @@ MIN_BATTERY_MV = 3700   # 이보다 낮으면 업데이트를 미룬다. 받는 
 # 받아 둔 최신 릴리스. commit 은 릴리스 커밋의 SHA, older 는 그 조상 커밋들, files 는 보드 종류마다 펌웨어.
 # 통째로 바꿔 끼우므로 읽는 쪽은 잠그지 않는다.
 _release: dict | None = None
+_loaded = False   # 켜진 뒤 GitHub 에서 확인을 마쳤나. 릴리스가 없다는 답도 확인이다
 
 
 def refresh() -> None:
     """최신 릴리스를 확인하고, 바뀌었으면 펌웨어를 받아 둔다. 실패하면 예외를 내고 받아 둔 것을 그대로 쓴다."""
-    global _release
+    global _release, _loaded
     with httpx.Client(timeout=60, follow_redirects=True) as client:
         r = client.get(LATEST + "commits.txt")
         if r.status_code == 404:              # 릴리스가 아직 없다
-            _release = None
+            _release, _loaded = None, True
             return
         r.raise_for_status()
         commits = r.text.split()
         if not commits or not all(re.fullmatch(r"[0-9a-f]{40}", c) for c in commits):
             raise ValueError("commits.txt 가 SHA 목록이 아니다")
         if _release and _release["commit"] == commits[0]:
+            _loaded = True
             return
         files = {}
         for board in BOARDS:
@@ -47,8 +49,12 @@ def refresh() -> None:
         # 받는 사이에 다음 릴리스가 나왔으면 파일과 목록이 서로 다른 릴리스다. 다음 확인 때 다시 받는다.
         if client.get(LATEST + "commits.txt").text.split()[:1] != commits[:1]:
             return
-    _release = {"commit": commits[0], "older": commits[1:], "files": files}
+    _release, _loaded = {"commit": commits[0], "older": commits[1:], "files": files}, True
     print(f"firmware release {commits[0][:7]}: " + ", ".join(f"{b} {len(d)}B" for b, d in files.items()), flush=True)
+
+
+def loaded() -> bool:
+    return _loaded
 
 
 def current() -> str | None:

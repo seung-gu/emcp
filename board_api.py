@@ -37,7 +37,7 @@ ACCEPT_TOKENLESS = os.getenv("ACCEPT_TOKENLESS") == "1"
 CHECK_INS_PER_IP = 30   # 등록 확인. 한 집에서 두 대를 같이 등록해도 넉넉하게
 LOOKUPS_PER_IP = 12     # 사본에 없는 토큰 때문에 DB 를 다시 읽는 횟수
 FIRMWARE_PER_IP = 6     # 펌웨어 받기. 한 집 보드 둘이 실패해서 다시 받아도 남게
-REFRESHES = 10          # 릴리스 알림. 아무나 부를 수 있어서 IP 가 아니라 전체 횟수로 묶는다
+REFRESHES = 20          # 릴리스 알림. 워크플로 한 번이 10번까지 부른다. 아무나 부를 수 있어서 전체 횟수로 묶는다
 
 
 def _field(report: dict, name: str):
