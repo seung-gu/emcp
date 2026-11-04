@@ -5,7 +5,9 @@
 하나(<종류>.bin)와, 릴리스 커밋부터 첫 커밋까지의 SHA 목록(commits.txt)이다. GitHub API 대신 릴리스 파일만
 받으므로 API 횟수 제한에 걸리지 않는다.
 
-확인은 타이머가 10분마다 한다(actions.run_due_jobs). 보드 요청은 받아 둔 것만 읽어서 GitHub 을 기다리지 않는다.
+릴리스 워크플로가 릴리스를 만든 직후 POST /firmware/refresh 로 알려 주면 그때 바로 받는다. 알림이 실패할 때를
+대비해 타이머도 10분마다 확인한다(actions.run_due_jobs). 보드 요청은 받아 둔 것만 읽어서 GitHub 을 기다리지
+않는다.
 """
 
 import re
@@ -47,6 +49,12 @@ def refresh() -> None:
             return
     _release = {"commit": commits[0], "older": commits[1:], "files": files}
     print(f"firmware release {commits[0][:7]}: " + ", ".join(f"{b} {len(d)}B" for b, d in files.items()), flush=True)
+
+
+def current() -> str | None:
+    """받아 둔 릴리스의 커밋. 릴리스가 없으면 None."""
+    rel = _release
+    return rel["commit"] if rel else None
 
 
 def offer(board, version, battery_mv: int) -> str | None:

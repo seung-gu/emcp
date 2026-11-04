@@ -81,3 +81,21 @@ def test_timer_picks_up_a_new_release(released):
     actions.run_due_jobs()
     assert firmware.offer("weather-xiao", NEW[:7], 4000) == newer
     assert firmware.binary("weather-xiao", newer) == b"\xe9new"
+
+
+def test_release_workflow_makes_the_server_fetch_now(client, releases):
+    assert client.post("/firmware/refresh").json() == {"commit": None}      # 릴리스가 아직 없다
+    releases.publish([NEW, OLD], {"weather-xiao.bin": XIAO})
+    assert client.post("/firmware/refresh").json() == {"commit": NEW}
+    assert firmware.offer("weather-xiao", OLD[:7], 4000) == NEW
+
+
+def test_refresh_reports_a_failed_fetch(client, released):
+    released.down = True
+    r = client.post("/firmware/refresh")
+    assert r.status_code == 502 and firmware.current() == NEW               # 받아 둔 것은 그대로
+
+
+def test_refreshes_are_limited(client):
+    codes = [client.post("/firmware/refresh").status_code for _ in range(11)]
+    assert codes == [200] * 10 + [429]

@@ -2,7 +2,7 @@
 
 들어오는 곳은 셋이다.
 1. MCP (Streamable HTTP, /mcp): tools.py. 로그인한 사람만 쓰고, 도구는 부른 사람의 보드만 다룬다.
-2. 보드용 HTTP (POST /weather, GET /firmware): board_api.py.
+2. 보드와 펌웨어 릴리스용 HTTP (POST /weather, /firmware): board_api.py.
 3. 로그인과 대시보드 (/auth, /dashboard, /r): web.py.
 
 그 아래에 입구 여럿이 같이 쓰는 동작(actions.py), 입력 검사(checks.py), 보드 사본(devices.py), 보고
@@ -46,6 +46,7 @@ ROUTES = [
     ("GET", "/health", board_api.health),
     ("POST", "/weather", board_api.weather_report),
     ("GET", "/firmware/{board}/{version}", board_api.firmware_file),
+    ("POST", "/firmware/refresh", board_api.firmware_refresh),
     ("GET", "/auth/login", web.login),
     ("GET", "/auth/callback", web.callback),
     ("GET", "/", web.root),

@@ -1,8 +1,9 @@
-"""보드와 Fly 가 부르는 HTTP 경로.
+"""보드와 바깥 서비스(Fly, GitHub Actions)가 부르는 HTTP 경로.
 
 - POST /weather: 등록 전 보드는 토큰과 등록 코드만 보내 등록됐는지 묻는다. 등록된 보드는 깨어날 때마다 토큰을
   실어 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를 받는다. 펌웨어가 옛 버전이면 새 버전도 알려 준다.
 - GET /firmware/<보드 종류>/<버전>: 보드가 새 펌웨어를 받는다 (firmware.py).
+- POST /firmware/refresh: 펌웨어 저장소의 릴리스 워크플로가 새 릴리스를 바로 받아 가라고 알린다.
 - GET /health: Fly.io 헬스체크.
 """
 
@@ -36,6 +37,7 @@ ACCEPT_TOKENLESS = os.getenv("ACCEPT_TOKENLESS") == "1"
 CHECK_INS_PER_IP = 30   # 등록 확인. 한 집에서 두 대를 같이 등록해도 넉넉하게
 LOOKUPS_PER_IP = 12     # 사본에 없는 토큰 때문에 DB 를 다시 읽는 횟수
 FIRMWARE_PER_IP = 6     # 펌웨어 받기. 한 집 보드 둘이 실패해서 다시 받아도 남게
+REFRESHES = 10          # 릴리스 알림. 아무나 부를 수 있어서 IP 가 아니라 전체 횟수로 묶는다
 
 
 def _field(report: dict, name: str):
@@ -141,6 +143,21 @@ async def firmware_file(request: Request) -> Response:
         return PlainTextResponse("not found", status_code=404)
     print(f"firmware sent: {board} {version[:7]} {len(data)}B", flush=True)
     return Response(data, media_type="application/octet-stream")
+
+
+async def firmware_refresh(request: Request) -> JSONResponse:
+    """릴리스 워크플로가 릴리스를 만든 직후 부른다. 최신 릴리스를 바로 받아 두고 그 커밋을 돌려준다. 워크플로는
+    이 커밋이 태그의 커밋과 같은지 보고 끝나므로, GitHub 의 초록 체크가 곧 서버가 받아 뒀다는 뜻이다. 누가
+    불러도 공개 릴리스를 다시 받을 뿐이라 비밀값 없이 받는다."""
+    if not checks.allowed("firmware-refresh", REFRESHES):
+        return JSONResponse({"error": "too many requests"}, status_code=429)
+    try:
+        await run_in_threadpool(firmware.refresh)
+    except Exception as e:
+        print(f"firmware refresh failed: {e!r}", flush=True)
+        sentry_sdk.capture_exception(e)
+        return JSONResponse({"error": "could not fetch the release"}, status_code=502)
+    return JSONResponse({"commit": firmware.current()})
 
 
 async def _check_in(report: dict, mac: str | None, ip: str) -> JSONResponse:
