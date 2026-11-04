@@ -23,6 +23,16 @@ Server for an ESP32 e-ink weather board. Each board reports its state on every w
 
 Sign-in goes through WorkOS AuthKit, and every person sees only their own boards. Board registration design: [docs/multi-user-rollout.ko.md](docs/multi-user-rollout.ko.md) (Korean).
 
+## Dashboard
+
+![Dashboard with the board list and the battery and Wi-Fi signal charts of one board over 20 hours](docs/images/dashboard.png)
+
+`/dashboard` after sign-in (Korean UI):
+
+- Boards: rename, change the weather location, share by email, unregister, add one with its code
+- Charts: battery, Wi-Fi signal, time awake, room temperature and humidity, chip temperature, NVS use. Ranges from 6 hours to 7 days or everything, drag to zoom, times in the board's local time
+- Tables: the last 50 reports, and reports the board could not send at the time
+
 ## Stack
 
 | Area | Used | For |
