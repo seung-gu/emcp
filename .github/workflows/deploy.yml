@@ -1,10 +1,11 @@
-# emcp 앱을 Fly.io 에 배포한다. 자동으로 돌지 않고, GitHub 의 Actions 탭에서 "Run workflow" 를 눌러야 돈다.
-# main 에 바로 커밋하므로 push 마다 배포하면 결과를 보고 승인하는 단계가 없어진다.
-# 테스트가 통과해야 배포한다. 저장소 비밀값 FLY_API_TOKEN 이 필요하다: fly tokens create deploy -a emcp
+# main 에 push 하면 테스트를 돌리고, 통과하면 emcp 앱을 Fly.io 에 배포한다. Actions 탭의 "Run workflow" 로
+# 다시 배포할 수도 있다. 저장소 비밀값 FLY_API_TOKEN 이 필요하다: fly tokens create deploy -a emcp
 # 옛 앱 emcp-led 는 손으로 배포한다 (README 의 Fly.io 배포).
 name: deploy
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency: deploy

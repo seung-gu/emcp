@@ -1,10 +1,8 @@
-# main 에 push 하거나 PR 을 열 때마다 테스트를 돌린다. 배포 워크플로(deploy.yml)도 배포 전에 이걸 부른다.
+# 테스트. PR 을 열 때 돌고, main 에 push 하면 배포 워크플로(deploy.yml)가 배포 전에 이걸 부른다.
 # 테스트는 이 job 안에 띄운 Postgres 18 만 쓴다 (tests/conftest.py 의 기본 주소 localhost:54329).
 name: test
 
 on:
-  push:
-    branches: [main]
   pull_request:
   workflow_call:
 
