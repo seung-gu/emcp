@@ -10,6 +10,7 @@
 import time
 from datetime import datetime, timedelta, timezone
 
+import sentry_sdk
 from starlette.concurrency import run_in_threadpool
 
 import auth
@@ -46,6 +47,7 @@ async def enter_code(user: str, raw) -> str:
         result, _ = await run_in_threadpool(db.boards.enter_code, user, code, email)
     except Exception as e:
         print(f"entering a code failed: {e!r}", flush=True)
+        sentry_sdk.capture_exception(e)
         return "error"
     if result == "registered":
         await run_in_threadpool(devices.load)
@@ -110,6 +112,7 @@ def run_jobs() -> None:
             run_due_jobs()
         except Exception as e:
             print(f"scheduled job failed: {e!r}", flush=True)
+            sentry_sdk.capture_exception(e)
 
 
 def flush_reports() -> None:
@@ -146,3 +149,4 @@ def forget_deleted_users() -> None:
             db.core.set_state("deleted_users_since", (deleted_at + timedelta(milliseconds=1)).isoformat())
     except Exception as e:
         print(f"checking deleted accounts failed: {e!r}", flush=True)
+        sentry_sdk.capture_exception(e)

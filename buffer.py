@@ -11,6 +11,8 @@ import os
 import threading
 import time
 
+import sentry_sdk
+
 import db.reports
 
 PATH = os.getenv("REPORTS_BUFFER", "pending-reports.jsonl")
@@ -47,6 +49,7 @@ def flush_sealed() -> bool:
                 result = db.reports.add_reports(rows)
             except Exception as e:
                 print(f"flush failed, keeping {path}: {e!r}", flush=True)
+                sentry_sdk.capture_exception(e)
                 return False
             os.remove(path)
             print(f"flushed {path}: {result}", flush=True)

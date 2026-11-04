@@ -152,6 +152,9 @@ fly deploy --ha=false
 (`deploy.yml`). 테스트가 통과해야 배포된다. 저장소 비밀값 `FLY_API_TOKEN` 에
 `fly tokens create deploy -a emcp` 로 만든 토큰을 넣어 둔다.
 
+에러 알림은 Sentry 로 받는다. Sentry 프로젝트의 DSN 을 `fly secrets set SENTRY_DSN=...` 로 넣으면 켜지고,
+없으면 아무것도 보내지 않는다. 요청 본문(보드 토큰이 들어 있다)과 개인정보는 보내지 않는다.
+
 - MCP 엔드포인트: `https://<app>.fly.dev/mcp`
 - 보드 보고: `POST https://<app>.fly.dev/weather`
 - 대시보드: `https://<app>.fly.dev/dashboard`

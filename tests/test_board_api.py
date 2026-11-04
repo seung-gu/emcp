@@ -1,5 +1,7 @@
 """보드가 부르는 POST /weather: 등록 확인과 상태 보고."""
 
+import sentry_sdk
+
 import actions
 import board_api
 import db.boards
@@ -131,3 +133,16 @@ def test_board_registered_elsewhere_is_found_after_reload(client, accounts):
     devices._by_token.clear()
     status, _ = report(client, token, MAC)
     assert status == 200 and devices.find(db.boards.hash_token(token))["id"] == device
+
+
+def test_check_in_failure_reaches_error_alerts(client, monkeypatch):
+    """DB 에 닿지 못하면 보드에는 503 으로 답하고(토큰을 지우지 않게), 에러는 Sentry 로 보낸다."""
+    sent = []
+    monkeypatch.setattr(sentry_sdk, "capture_exception", lambda e=None: sent.append(e))
+
+    def down(*args):
+        raise RuntimeError("database unreachable")
+
+    monkeypatch.setattr(db.boards, "board_check_in", down)
+    assert check_in(client, new_token(), MAC, new_code())[0] == 503
+    assert [str(e) for e in sent] == ["database unreachable"]

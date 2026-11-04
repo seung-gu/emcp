@@ -8,6 +8,7 @@
 import os
 from datetime import datetime, timezone
 
+import sentry_sdk
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
@@ -130,6 +131,7 @@ async def _check_in(report: dict, mac: str | None, ip: str) -> JSONResponse:
         result, _ = await run_in_threadpool(db.boards.board_check_in, db.boards.hash_token(token), mac, code)
     except Exception as e:
         print(f"check-in failed: {e!r}", flush=True)
+        sentry_sdk.capture_exception(e)
         return JSONResponse({"error": "try again later"}, status_code=503)
     if result == "taken":
         # 다른 보드가 같은 코드를 쓰고 있다. 보드는 코드를 새로 만들어 띄운다.

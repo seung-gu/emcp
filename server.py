@@ -15,6 +15,7 @@ open-meteo)이 있다. 대시보드 화면은 dashboard/ 가 그린다. 위 층�
 import os
 import threading
 
+import sentry_sdk
 from mcp.server.fastmcp import FastMCP
 
 import actions
@@ -23,6 +24,12 @@ import board_api
 import devices
 import tools
 import web
+
+# 에러 알림. SENTRY_DSN 이 있을 때만 켠다 (fly secrets). 잡지 못한 예외는 Sentry 가 알아서 보내고, 잡아서 로그만
+# 남기는 곳(보고 옮기기, 등록 확인, 보드 사본 읽기 등)은 그 자리에서 sentry_sdk.capture_exception 으로 보낸다.
+# 요청 본문은 보내지 않는다. 보드 보고에는 토큰이 들어 있다.
+if dsn := os.environ.get("SENTRY_DSN"):
+    sentry_sdk.init(dsn=dsn, send_default_pii=False, max_request_body_size="never", traces_sample_rate=0)
 
 # Fly.io 는 PORT 환경변수로 내부 포트를 넘겨준다. 없으면 8080.
 _port = int(os.environ.get("PORT", "8080"))

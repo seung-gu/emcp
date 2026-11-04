@@ -6,6 +6,7 @@
 
 import time
 
+import sentry_sdk
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -233,6 +234,7 @@ async def dashboard_share(request: Request) -> RedirectResponse:
         viewer = await run_in_threadpool(auth.user_id_for_email, email)
     except Exception as e:
         print(f"looking up {email} failed: {e!r}", flush=True)
+        sentry_sdk.capture_exception(e)
         return RedirectResponse("/dashboard?notice=share_error", status_code=303)
     if not viewer:
         return RedirectResponse("/dashboard?notice=email_not_found", status_code=303)

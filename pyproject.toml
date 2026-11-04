@@ -9,6 +9,7 @@ dependencies = [
     "mcp>=1.28.1",
     "psycopg[binary]>=3.3.7",
     "pyjwt[crypto]>=2.13.0",
+    "sentry-sdk>=2.73.0",
     "workos>=10.6.0",
 ]
 
