@@ -1,0 +1,31 @@
+# main 에 push 하거나 PR 을 열 때마다 테스트를 돌린다. 배포 워크플로(deploy.yml)도 배포 전에 이걸 부른다.
+# 테스트는 이 job 안에 띄운 Postgres 18 만 쓴다 (tests/conftest.py 의 기본 주소 localhost:54329).
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: emcp_test
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: uv run pytest -q

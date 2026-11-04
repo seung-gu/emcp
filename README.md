@@ -147,6 +147,11 @@ fly deploy --ha=false
 `ACCEPT_TOKENLESS=1` 을 준다. 이 값이 빠지면 옛 보드의 보고가 전부 거절되고, 보드는 5분마다 다시 시도하면서
 배터리를 쓴다. `emcp` 에는 주지 않는다.
 
+처음 설정을 마친 뒤 `emcp` 배포는 GitHub 에서 한다. main 에 push 하면 Actions 가 테스트를 돌리고
+(`.github/workflows/test.yml`), 배포는 Actions 탭의 deploy 에서 "Run workflow" 를 눌러야 돈다
+(`deploy.yml`). 테스트가 통과해야 배포된다. 저장소 비밀값 `FLY_API_TOKEN` 에
+`fly tokens create deploy -a emcp` 로 만든 토큰을 넣어 둔다.
+
 - MCP 엔드포인트: `https://<app>.fly.dev/mcp`
 - 보드 보고: `POST https://<app>.fly.dev/weather`
 - 대시보드: `https://<app>.fly.dev/dashboard`
