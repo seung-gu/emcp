@@ -25,7 +25,7 @@ Sign-in goes through WorkOS AuthKit, and every person sees only their own boards
 
 ## Dashboard
 
-![Dashboard with the board list and the battery and Wi-Fi signal charts of one board over 20 hours](docs/images/dashboard.png)
+![Dashboard with the board list and the battery and Wi-Fi signal charts of one board over 20 hours](docs/diagrams/dashboard.png)
 
 `/dashboard` after sign-in (Korean UI):
 

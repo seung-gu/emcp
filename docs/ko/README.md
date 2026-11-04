@@ -30,7 +30,7 @@ ESP32 e-ink 날씨 보드용 서버.
 
 ## 대시보드
 
-![보드 목록과 보드 하나의 20시간치 배터리, Wi-Fi 신호 그래프가 보이는 대시보드](../images/dashboard.png)
+![보드 목록과 보드 하나의 20시간치 배터리, Wi-Fi 신호 그래프가 보이는 대시보드](../diagrams/dashboard.png)
 
 로그인 후 `/dashboard`:
 
