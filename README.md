@@ -25,7 +25,7 @@ Sign-in goes through WorkOS AuthKit, and every person sees only their own boards
 
 ## Dashboard
 
-![Dashboard with the board list and the battery and Wi-Fi signal charts of one board over 20 hours](docs/diagrams/dashboard.png)
+![Dashboard charts of one board from 10/15 to 11/4: battery, Wi-Fi signal, awake time per wake, room temperature and humidity](docs/diagrams/dashboard-en.png)
 
 `/dashboard` after sign-in (Korean UI):
 
