@@ -52,7 +52,7 @@ import auth  # noqa: E402
 import board_api  # noqa: E402
 import buffer  # noqa: E402
 import checks  # noqa: E402
-import db  # noqa: E402
+import db.core  # noqa: E402
 import devices  # noqa: E402
 import server  # noqa: E402
 import web  # noqa: E402
@@ -156,7 +156,7 @@ def accounts(monkeypatch):
 @pytest.fixture(autouse=True)
 def fresh_state():
     """테이블을 비우고 서버가 메모리에 든 것을 처음 상태로 돌린다."""
-    with db._connect() as conn:
+    with db.core.connect() as conn:
         tables = [r["tablename"] for r in conn.execute(
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations'")]
         conn.execute(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")

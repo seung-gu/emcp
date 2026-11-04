@@ -14,7 +14,8 @@ from starlette.concurrency import run_in_threadpool
 import auth
 import buffer
 import checks
-import db
+import db.boards
+import db.core
 import devices
 
 # --- 등록 코드 입력 ---
@@ -41,7 +42,7 @@ async def enter_code(user: str, raw) -> str:
         return "limited"
     try:
         email = await run_in_threadpool(auth.user_email, user)
-        result, _ = await run_in_threadpool(db.enter_code, user, code, email)
+        result, _ = await run_in_threadpool(db.boards.enter_code, user, code, email)
     except Exception as e:
         print(f"entering a code failed: {e!r}", flush=True)
         return "error"
@@ -60,7 +61,7 @@ async def move_board(user: str, device_id: int, name: str, lat: float, lon: floa
         return "bad_place"
     if not (city := checks.name(name)):
         return "bad_name"
-    if not await run_in_threadpool(db.set_location, user, device_id, city, lat, lon):
+    if not await run_in_threadpool(db.boards.set_location, user, device_id, city, lat, lon):
         return "not_owner"
     await run_in_threadpool(devices.load)
     return "moved"
@@ -70,7 +71,7 @@ async def rename_board(user: str, device_id: int, name: str) -> str:
     """보드 이름을 바꾼다. 'renamed', 'bad_name', 'not_owner' 중 하나를 돌려준다."""
     if not (new := checks.name(name)):
         return "bad_name"
-    if not await run_in_threadpool(db.rename_device, user, device_id, new):
+    if not await run_in_threadpool(db.boards.rename_device, user, device_id, new):
         return "not_owner"
     return "renamed"
 
@@ -115,14 +116,14 @@ def forget_deleted_users() -> None:
         return
     _last_account_check = time.monotonic()
     try:
-        since = db.get_state("deleted_users_since")
+        since = db.core.get_state("deleted_users_since")
         if since is None:
-            db.set_state("deleted_users_since", datetime.now(timezone.utc).isoformat())
+            db.core.set_state("deleted_users_since", datetime.now(timezone.utc).isoformat())
             return
         for deleted_at, user_id in auth.deleted_users_since(datetime.fromisoformat(since)):
-            released = db.forget_user(user_id)
+            released = db.boards.forget_user(user_id)
             print(f"account deleted: {user_id}, released boards {released}", flush=True)
             # 1ms 뒤부터 묻는다. WorkOS 는 시작 시각을 포함해서 돌려주므로 같은 삭제를 또 받지 않게.
-            db.set_state("deleted_users_since", (deleted_at + timedelta(milliseconds=1)).isoformat())
+            db.core.set_state("deleted_users_since", (deleted_at + timedelta(milliseconds=1)).isoformat())
     except Exception as e:
         print(f"checking deleted accounts failed: {e!r}", flush=True)

@@ -11,7 +11,7 @@ import os
 import threading
 import time
 
-import db
+import db.reports
 
 PATH = os.getenv("REPORTS_BUFFER", "pending-reports.jsonl")
 _flush_lock = threading.Lock()
@@ -31,13 +31,13 @@ def seal() -> None:
 
 def flush_sealed() -> bool:
     """봉인된 파일을 오래된 것부터 Neon 에 넣고 지운다. 실패하면 그 파일을 남겨 다음 번에 다시
-    넣고 False 를 돌려준다 — 이미 들어간 보고는 db.add_reports 가 건너뛰므로 두 번 넣어도 된다."""
+    넣고 False 를 돌려준다 — 이미 들어간 보고는 db.reports.add_reports 가 건너뛰므로 두 번 넣어도 된다."""
     with _flush_lock:
         for path in sorted(glob.glob(glob.escape(PATH) + ".*")):
             with open(path, encoding="utf-8") as f:
                 rows = [json.loads(line) for line in f if line.strip()]
             try:
-                result = db.add_reports(rows)
+                result = db.reports.add_reports(rows)
             except Exception as e:
                 print(f"flush failed, keeping {path}: {e!r}", flush=True)
                 return False

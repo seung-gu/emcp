@@ -13,7 +13,7 @@ from starlette.concurrency import run_in_threadpool
 
 import actions
 import checks
-import db
+import db.boards
 import devices
 import weather
 
@@ -35,7 +35,7 @@ async def register_device(code: str) -> str:
 async def get_weather_location() -> str:
     """내가 볼 수 있는 보드마다 '번호 / 이름 / MAC / 날씨 위치 / 역할' 을 한 줄씩 보여준다.
     위치나 이름을 바꿀 때 이 번호를 쓴다."""
-    boards = await run_in_threadpool(db.list_devices, _caller())
+    boards = await run_in_threadpool(db.boards.list_devices, _caller())
     if not boards:
         return "연결된 보드가 없다"
     lines = []

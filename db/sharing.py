@@ -1,0 +1,72 @@
+"""공유. 주인만 공유하고 취소한다. 공유받은 사람(viewer)은 보고를 보기만 하고 보드를 바꾸지 못한다."""
+
+from __future__ import annotations
+
+from db.boards import OWNED_BY
+from db.core import connect
+
+def share_device(owner_id: str, device_id: int, viewer_id: str, email: str) -> bool:
+    """주인이면 그 계정에 공유를 요청한다. 받는 사람이 수락하기 전에는 아무것도 보이지 않는다. 이미 요청했거나
+    공유 중이면 그대로 둔다."""
+    with connect() as conn:
+        if not conn.execute(f"SELECT 1 FROM devices WHERE id = %s AND {OWNED_BY}", (device_id, owner_id)).fetchone():
+            return False
+        conn.execute("INSERT INTO device_access (device_id, user_id, role, accepted, email)"
+                     " VALUES (%s, %s, 'viewer', false, %s) ON CONFLICT DO NOTHING", (device_id, viewer_id, email))
+        return True
+
+
+def incoming_shares(user_id: str) -> list[dict]:
+    """이 사람에게 온, 아직 수락하지 않은 공유 요청. 보드 이름과 MAC, 요청한 주인의 이메일."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT d.id, d.name, d.mac, coalesce(o.email, d.owner_email) AS owner_email FROM device_access a"
+            " JOIN devices d ON d.id = a.device_id"
+            " LEFT JOIN device_access o ON o.device_id = a.device_id AND o.role = 'owner'"
+            " WHERE a.user_id = %s AND a.role = 'viewer' AND NOT a.accepted ORDER BY d.id",
+            (user_id,),
+        ).fetchall()
+
+
+def answer_share(user_id: str, device_id: int, accept: bool) -> bool:
+    """받은 공유 요청을 수락하거나 거절한다. 거절하면 요청이 사라진다."""
+    with connect() as conn:
+        if accept:
+            cur = conn.execute("UPDATE device_access SET accepted = true WHERE device_id = %s AND user_id = %s"
+                               " AND role = 'viewer' AND NOT accepted", (device_id, user_id))
+        else:
+            cur = conn.execute("DELETE FROM device_access WHERE device_id = %s AND user_id = %s"
+                               " AND role = 'viewer' AND NOT accepted", (device_id, user_id))
+        return cur.rowcount == 1
+
+
+def leave_share(user_id: str, device_id: int) -> bool:
+    """공유받던 보드를 내 목록에서 뺀다. 주인 보드는 뺄 수 없다."""
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM device_access WHERE device_id = %s AND user_id = %s AND role = 'viewer'",
+                           (device_id, user_id))
+        return cur.rowcount == 1
+
+
+def unshare_device(owner_id: str, device_id: int, email: str) -> bool:
+    """주인이면 그 이메일 사람의 보기 권한을 지운다."""
+    with connect() as conn:
+        if not conn.execute(f"SELECT 1 FROM devices WHERE id = %s AND {OWNED_BY}", (device_id, owner_id)).fetchone():
+            return False
+        conn.execute("DELETE FROM device_access WHERE device_id = %s AND role = 'viewer' AND email = %s",
+                     (device_id, email))
+        return True
+
+
+def shares_of(owner_id: str) -> dict[int, list[dict]]:
+    """주인인 보드마다 공유한 사람의 이메일과 수락했는지."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT a.device_id, a.email, a.accepted FROM device_access a"
+            " WHERE a.role = 'viewer' AND a.device_id IN"
+            " (SELECT device_id FROM device_access WHERE user_id = %s AND role = 'owner') ORDER BY 1, 2",
+            (owner_id,)).fetchall()
+    out: dict[int, list[dict]] = {}
+    for r in rows:
+        out.setdefault(r["device_id"], []).append({"email": r["email"], "accepted": r["accepted"]})
+    return out

@@ -16,7 +16,8 @@ from starlette.responses import JSONResponse, PlainTextResponse
 import actions
 import buffer
 import checks
-import db
+import db.boards
+import db.reports
 import devices
 import weather
 
@@ -66,7 +67,7 @@ async def weather_report(request: Request) -> JSONResponse:
         return await _check_in(report, mac, ip)
 
     if "token" in report:
-        device = devices.find(token_hash := db.hash_token(str(report["token"])))
+        device = devices.find(token_hash := db.boards.hash_token(str(report["token"])))
         if device is None:
             # 사본에 없으면 DB 를 한 번 다시 읽는다. 모르는 토큰을 쏟아부어 DB 를 계속 깨우지 못하게 IP 마다
             # 횟수를 묶는다.
@@ -94,8 +95,8 @@ async def weather_report(request: Request) -> JSONResponse:
     if mac:
         row["mac"] = mac
     # 나머지는 있으면 싣고 없으면 만다. 보드 펌웨어와 이 서버는 따로 배포되므로 한쪽이
-    # 아직 모르는 필드가 있어도 보고가 깨지면 안 된다. 항목 목록은 db.py 한 곳에 있다.
-    for name, kind in {**db.REPORT_FIELDS, **db.SENSOR_FIELDS}.items():
+    # 아직 모르는 필드가 있어도 보고가 깨지면 안 된다. 항목 목록은 db/reports.py 한 곳에 있다.
+    for name, kind in {**db.reports.REPORT_FIELDS, **db.reports.SENSOR_FIELDS}.items():
         v = checks.CLEAN[kind](_field(report, name))
         if v is not None:
             row[name] = v
@@ -128,7 +129,7 @@ async def _check_in(report: dict, mac: str | None, ip: str) -> JSONResponse:
     if not checks.allowed(f"check-in:{ip}", CHECK_INS_PER_IP):
         return JSONResponse({"error": "too many requests"}, status_code=429)
     try:
-        result, _ = await run_in_threadpool(db.board_check_in, db.hash_token(token), mac, code)
+        result, _ = await run_in_threadpool(db.boards.board_check_in, db.boards.hash_token(token), mac, code)
     except Exception as e:
         print(f"check-in failed: {e!r}", flush=True)
         return JSONResponse({"error": "try again later"}, status_code=503)
@@ -138,6 +139,6 @@ async def _check_in(report: dict, mac: str | None, ip: str) -> JSONResponse:
     if result != "registered":
         return JSONResponse({"registered": False})
     await run_in_threadpool(devices.load)
-    body, status, _ = await weather.board_body(devices.location(devices.find(db.hash_token(token))))
+    body, status, _ = await weather.board_body(devices.location(devices.find(db.boards.hash_token(token))))
     print(f"registered: {mac}", flush=True)
     return JSONResponse({**body, "registered": True}, status_code=status)

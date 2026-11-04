@@ -2,7 +2,7 @@
 
 import actions
 import board_api
-import db
+import db.boards
 import devices
 from helpers import buffered, check_in, new_code, new_token, post_form, register, report, tool
 
@@ -130,4 +130,4 @@ def test_board_registered_elsewhere_is_found_after_reload(client, accounts):
     token, device = register(client, accounts.add("user_me"), MAC)
     devices._by_token.clear()
     status, _ = report(client, token, MAC)
-    assert status == 200 and devices.find(db.hash_token(token))["id"] == device
+    assert status == 200 and devices.find(db.boards.hash_token(token))["id"] == device

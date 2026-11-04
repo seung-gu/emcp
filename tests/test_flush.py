@@ -4,7 +4,8 @@ import glob
 
 import actions
 import buffer
-import db
+import db.boards
+import db.reports
 from helpers import register, report, sign_in
 
 MAC = "TEST00000001"
@@ -16,7 +17,7 @@ def test_flush_moves_reports_into_the_database(client, accounts):
     report(client, token, MAC, log=[{"kind": "wifi", "wifi_ms": 3000}])
     buffer.seal()
     actions.flush_reports()
-    rows = db.read_reports(me)
+    rows = db.reports.read_reports(me)
     assert len(rows) == 1 and rows[0]["city"] == "뮌헨" and rows[0]["log"][0]["kind"] == "wifi"
     assert glob.glob(buffer.PATH + "*") == []
 
@@ -26,8 +27,8 @@ def test_same_batch_twice_is_stored_once(client, accounts):
     token, device = register(client, me, MAC)
     report(client, token, MAC)
     row = {"received_at": "2026-11-04T10:00:00+00:00", "device_id": device, "battery_mv": 4000}
-    assert db.add_reports([row])["reports"] == 1
-    assert db.add_reports([row]) == {"reports": 0, "skipped": 1, "wake_logs": 0}
+    assert db.reports.add_reports([row])["reports"] == 1
+    assert db.reports.add_reports([row]) == {"reports": 0, "skipped": 1, "wake_logs": 0}
 
 
 def test_dashboard_moves_reports_before_reading(client, accounts):
@@ -36,7 +37,7 @@ def test_dashboard_moves_reports_before_reading(client, accounts):
     report(client, token, MAC)
     sign_in(client, me)
     client.get("/dashboard")
-    assert len(db.read_reports(me)) == 1
+    assert len(db.reports.read_reports(me)) == 1
 
 
 def test_flush_is_due_once_an_hour(client, accounts):
@@ -54,4 +55,4 @@ def test_deleted_account_loses_its_boards(client, accounts):
     actions._last_account_check = float("-inf")  # 30분이 지난 것으로
     actions.flush_reports()
     assert report(client, token, MAC) == (401, {"registered": False})
-    assert db.list_devices(owner) == []
+    assert db.boards.list_devices(owner) == []

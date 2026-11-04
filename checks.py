@@ -3,7 +3,7 @@
 import re
 import time
 
-import db
+import db.reports
 
 # 보드가 만드는 값의 모양. 펌웨어와 맞춘 약속이다. 토큰은 32바이트 난수를 소문자 16진수로 쓴 64자,
 # 등록 코드는 헷갈리는 0, 1, I, O 를 뺀 32글자 중 6자리다.
@@ -75,7 +75,7 @@ def tag(v) -> str | None:
     return v or None
 
 
-# db.py 의 항목 타입마다 들어온 값을 거르는 함수.
+# db/reports.py 의 항목 타입마다 들어온 값을 거르는 함수.
 CLEAN = {int: to_int, float: to_float, bool: to_bool, str: tag}
 
 
@@ -84,7 +84,7 @@ def clean_entry(e: dict) -> dict:
     그냥 빠진다 — 자리를 채우지 않는다."""
     kind = e.get("kind")
     out = {"kind": kind if kind in _LOG_KINDS else "unknown"}
-    for k, kind in db.LOG_FIELDS.items():
+    for k, kind in db.reports.LOG_FIELDS.items():
         v = CLEAN[kind](e.get(k))
         if v is not None:
             out[k] = v

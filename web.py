@@ -15,7 +15,9 @@ import auth
 import buffer
 import checks
 import dashboard
-import db
+import db.boards
+import db.reports
+import db.sharing
 import devices
 import weather
 
@@ -113,12 +115,12 @@ async def dashboard_page(request: Request):
         return RedirectResponse("/auth/login")
     buffer.seal()
     await run_in_threadpool(actions.flush_reports)
-    rows = await run_in_threadpool(db.read_reports, user)
-    boards = await run_in_threadpool(db.list_devices, user)
-    pending = await run_in_threadpool(db.pending_codes, user)
-    history = await run_in_threadpool(db.previous_history, user)
-    shares = await run_in_threadpool(db.shares_of, user)
-    incoming = await run_in_threadpool(db.incoming_shares, user)
+    rows = await run_in_threadpool(db.reports.read_reports, user)
+    boards = await run_in_threadpool(db.boards.list_devices, user)
+    pending = await run_in_threadpool(db.boards.pending_codes, user)
+    history = await run_in_threadpool(db.boards.previous_history, user)
+    shares = await run_in_threadpool(db.sharing.shares_of, user)
+    incoming = await run_in_threadpool(db.sharing.incoming_shares, user)
     # QR 로 왔으면 코드를 입력 칸에 채운다. 로그인을 거쳐 왔으면 /r 이 쿠키에 맡겨 둔 코드다.
     prefill = checks.code(request.query_params.get("code")) or checks.code(request.cookies.get("emcp_claim"))
     notice = NOTICES.get(request.query_params.get("notice", "")) or (prefill and NOTICES["prefilled"])
@@ -148,7 +150,7 @@ async def dashboard_release(request: Request) -> RedirectResponse:
         return RedirectResponse("/auth/login", status_code=303)
     form = await request.form()
     device_id = checks.to_int(form.get("device_id"))
-    released = device_id is not None and await run_in_threadpool(db.release_device, user, device_id)
+    released = device_id is not None and await run_in_threadpool(db.boards.release_device, user, device_id)
     if released:
         await run_in_threadpool(devices.load)
     return RedirectResponse(f"/dashboard?notice={'released' if released else 'not_released'}", status_code=303)
@@ -156,7 +158,7 @@ async def dashboard_release(request: Request) -> RedirectResponse:
 
 async def dashboard_history(request: Request) -> RedirectResponse:
     """등록된 보드에 예전 기록이 있을 때 "가져오기"(choice=import) 또는 "그냥 두기"(choice=keep). 예전 기록은
-    주인 이메일이 같은 경우에만 대시보드에 뜬다 (db.previous_history)."""
+    주인 이메일이 같은 경우에만 대시보드에 뜬다 (db.boards.previous_history)."""
     user = await _signed_in(request)
     if not user:
         return RedirectResponse("/auth/login", status_code=303)
@@ -165,10 +167,10 @@ async def dashboard_history(request: Request) -> RedirectResponse:
     if device_id is None:
         return RedirectResponse("/dashboard?notice=not_imported", status_code=303)
     if form.get("choice") == "import":
-        done = await run_in_threadpool(db.import_history, user, device_id)
+        done = await run_in_threadpool(db.boards.import_history, user, device_id)
         notice = "imported" if done else "not_imported"
     else:
-        done = await run_in_threadpool(db.decline_history, user, device_id)
+        done = await run_in_threadpool(db.boards.decline_history, user, device_id)
         notice = "kept" if done else "not_imported"
     return RedirectResponse(f"/dashboard?notice={notice}", status_code=303)
 
@@ -236,7 +238,7 @@ async def dashboard_share(request: Request) -> RedirectResponse:
         return RedirectResponse("/dashboard?notice=email_not_found", status_code=303)
     if viewer == user:
         return RedirectResponse("/dashboard?notice=self_share", status_code=303)
-    done = await run_in_threadpool(db.share_device, user, device_id, viewer, email)
+    done = await run_in_threadpool(db.sharing.share_device, user, device_id, viewer, email)
     return RedirectResponse(f"/dashboard?notice={'shared' if done else 'not_shared'}", status_code=303)
 
 
@@ -247,7 +249,7 @@ async def dashboard_share_answer(request: Request) -> RedirectResponse:
         return RedirectResponse("/auth/login", status_code=303)
     form = await request.form()
     device_id, accept = checks.to_int(form.get("device_id")), form.get("choice") == "accept"
-    done = device_id is not None and await run_in_threadpool(db.answer_share, user, device_id, accept)
+    done = device_id is not None and await run_in_threadpool(db.sharing.answer_share, user, device_id, accept)
     notice = ("share_accepted" if accept else "share_declined") if done else "not_answered"
     return RedirectResponse(f"/dashboard?notice={notice}", status_code=303)
 
@@ -259,7 +261,7 @@ async def dashboard_leave(request: Request) -> RedirectResponse:
         return RedirectResponse("/auth/login", status_code=303)
     form = await request.form()
     device_id = checks.to_int(form.get("device_id"))
-    done = device_id is not None and await run_in_threadpool(db.leave_share, user, device_id)
+    done = device_id is not None and await run_in_threadpool(db.sharing.leave_share, user, device_id)
     return RedirectResponse(f"/dashboard?notice={'left' if done else 'not_answered'}", status_code=303)
 
 
@@ -269,7 +271,7 @@ async def dashboard_unshare(request: Request) -> RedirectResponse:
         return RedirectResponse("/auth/login", status_code=303)
     form = await request.form()
     device_id, email = checks.to_int(form.get("device_id")), checks.email(form.get("email"))
-    done = device_id is not None and email and await run_in_threadpool(db.unshare_device, user, device_id, email)
+    done = device_id is not None and email and await run_in_threadpool(db.sharing.unshare_device, user, device_id, email)
     return RedirectResponse(f"/dashboard?notice={'unshared' if done else 'not_shared'}", status_code=303)
 
 

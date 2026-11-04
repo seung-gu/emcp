@@ -6,7 +6,7 @@ Neon 으로 옮길 때 (DB 가 어차피 깨어 있을 때), 위치를 바꾸거
 위치를 정하지 않은 보드와 아직 DB 에 없는 보드는 기본 위치로 조회한다.
 """
 
-import db
+import db.boards
 
 DEFAULT_LOCATION = {"name": "뮌헨", "lat": 48.14, "lon": 11.58}
 _by_token: dict[str, dict] = {}
@@ -17,12 +17,12 @@ def load() -> bool:
     """DB 에서 보드 사본을 다시 읽는다. 실패하면 있던 사본을 그대로 두고 False 를 돌려준다."""
     global _by_token, _by_mac
     try:
-        rows = db.read_devices()
+        rows = db.boards.read_devices()
     except Exception as e:
         print(f"loading devices failed, keeping the old copy: {e!r}", flush=True)
         return False
     _by_token = {r["token_hash"]: r for r in rows if r["token_hash"]}
-    # 같은 MAC 의 행이 여럿이면 가장 오래된 행. 토큰 없는 옛 보고를 db._device_ids 와 같은 행으로 보낸다.
+    # 같은 MAC 의 행이 여럿이면 가장 오래된 행. 토큰 없는 옛 보고를 db.reports._device_ids 와 같은 행으로 보낸다.
     _by_mac = {r["mac"]: r for r in sorted(rows, key=lambda r: r["id"], reverse=True)}
     return True
 

@@ -3,7 +3,8 @@
 from datetime import datetime, timezone
 
 import auth
-import db
+import db.boards
+import db.core
 from helpers import post_form, register, sign_in
 
 MAC = "TEST00000001"
@@ -14,7 +15,7 @@ def setup_board(client, accounts):
     friend = accounts.add("user_friend", "friend@test.example")
     _, device = register(client, owner, MAC)
     post_form(client, owner, "/dashboard/rename", device_id=str(device), name="친구 방")
-    with db._connect() as conn:
+    with db.core.connect() as conn:
         conn.execute("INSERT INTO reports (device_id, received_at, battery_mv, rssi, timezone)"
                      " VALUES (%s, %s, 3999, -60, 'Asia/Seoul')",
                      (device, datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)))
@@ -42,7 +43,7 @@ def test_nothing_shows_before_accepting(client, accounts):
     page = client.get("/dashboard").text
     assert "owner@test.example 님이 '친구 방' 보드를 공유하려고 합니다" in page
     assert "2026-11-03 21:00" not in page and "목록에서 빼기" not in page
-    assert db.list_devices(friend) == []
+    assert db.boards.list_devices(friend) == []
 
 
 def test_decline_removes_the_request(client, accounts):

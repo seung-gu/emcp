@@ -9,7 +9,7 @@ from workos.session import seal_data
 
 import buffer
 import checks
-import db
+import db.boards
 import devices
 
 def new_token() -> str:
@@ -73,4 +73,4 @@ def register(client, user: str, mac: str) -> tuple[str, int]:
     token, code = new_token(), new_code()
     check_in(client, token, mac, code)
     assert post_form(client, user, "/dashboard/claim", code=code) == "/dashboard?notice=registered"
-    return token, devices.find(db.hash_token(token))["id"]
+    return token, devices.find(db.boards.hash_token(token))["id"]

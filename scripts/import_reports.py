@@ -9,7 +9,7 @@ at_estimated 는 쓰는 곳이 없어 옮기지 않는다. 원본(raw)과 날씨
 import json
 import sys
 
-import db
+import db.reports
 
 
 def convert(old: dict) -> dict:
@@ -24,7 +24,7 @@ def main(path: str) -> None:
     with open(path, encoding="utf-8") as f:
         rows = [convert(json.loads(line)) for line in f if line.strip()]
     # 앞뒤 보고를 비교해 반복해서 실려 온 실패 기록을 거르므로, 나눠 넣지 않고 한 번에 넣는다.
-    print(f"{path}: {len(rows)} rows -> {db.add_reports(rows)}")
+    print(f"{path}: {len(rows)} rows -> {db.reports.add_reports(rows)}")
 
 
 if __name__ == "__main__":
