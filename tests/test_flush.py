@@ -6,9 +6,36 @@ import actions
 import buffer
 import db.boards
 import db.reports
-from helpers import register, report, sign_in
+import devices
+from helpers import buffered, register, report, sign_in
 
 MAC = "TEST00000001"
+
+
+def test_report_only_writes_to_the_buffer(client, accounts):
+    """한 시간이 지났어도 보고 요청은 버퍼에 쓰기만 한다. 옮기는 건 타이머다."""
+    me = accounts.add("user_me")
+    token, _ = register(client, me, MAC)
+    actions._last_flush = float("-inf")
+    report(client, token, MAC)
+    assert len(buffered()) == 1 and db.reports.read_reports(me) == []
+
+
+def test_timer_moves_reports_without_any_request(client, accounts):
+    me = accounts.add("user_me")
+    token, _ = register(client, me, MAC)
+    report(client, token, MAC)
+    actions._last_flush = float("-inf")
+    actions.run_due_jobs()
+    assert len(db.reports.read_reports(me)) == 1
+
+
+def test_timer_leaves_the_database_alone_without_reports(monkeypatch):
+    loads = []
+    monkeypatch.setattr(devices, "load", lambda: loads.append(1))
+    actions._last_flush = float("-inf")
+    actions.run_due_jobs()
+    assert loads == []
 
 
 def test_flush_moves_reports_into_the_database(client, accounts):

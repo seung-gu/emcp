@@ -14,19 +14,26 @@ import time
 import db.reports
 
 PATH = os.getenv("REPORTS_BUFFER", "pending-reports.jsonl")
+_write_lock = threading.Lock()     # 보고 덧붙이기와 봉인 사이. 봉인은 타이머 스레드에서도 한다
 _flush_lock = threading.Lock()
 
 
 def append(row: dict) -> None:
-    with open(PATH, "a", encoding="utf-8") as f:
+    with _write_lock, open(PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def seal() -> None:
-    """지금까지 쌓인 버퍼를 봉인 파일로 넘긴다. 이벤트 루프에서만 부른다 — 보고를 덧붙이는 것도
-    루프에서만 하므로, 이름을 바꾸는 사이에 한 줄이 끼어들 수 없다."""
-    if os.path.exists(PATH):
-        os.replace(PATH, f"{PATH}.{time.time_ns()}")
+    """지금까지 쌓인 버퍼를 봉인 파일로 넘긴다. 덧붙이기와 같은 잠금을 써서, 이름을 바꾸는 사이에 한 줄이
+    끼어들 수 없다."""
+    with _write_lock:
+        if os.path.exists(PATH):
+            os.replace(PATH, f"{PATH}.{time.time_ns()}")
+
+
+def has_sealed() -> bool:
+    """옮길 봉인 파일이 있는지."""
+    return bool(glob.glob(glob.escape(PATH) + ".*"))
 
 
 def flush_sealed() -> bool:

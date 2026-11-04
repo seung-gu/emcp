@@ -3,7 +3,8 @@
 - 대시보드와 Claude 가 같이 쓰는 동작: 등록 코드 입력, 위치 바꾸기, 이름 바꾸기. 결과는 키로 돌려주고, 그걸
   안내 문구나 Claude 답으로 바꾸는 건 부른 쪽(web.py, tools.py)이 한다.
 - 보고 옮기기: 버퍼를 Neon 으로 옮기고, 그 김에 지운 계정의 보드를 해제하고, 보드 사본을 다시 읽는다. 이
-  순서를 여기서 정해서 buffer.py 가 위 층을 부르지 않게 한다.
+  순서를 여기서 정해서 buffer.py 가 위 층을 부르지 않게 한다. 한 시간마다 옮기는 건 server.py 가 띄우는
+  타이머 스레드(run_jobs)가 하고, 대시보드는 열 때마다 먼저 옮긴다.
 """
 
 import time
@@ -79,18 +80,36 @@ async def rename_board(user: str, device_id: int, name: str) -> str:
 # --- 보고 옮기기 ---
 
 _FLUSH_SECONDS = 3600
-_last_flush = float("-inf")     # 뜬 뒤 첫 보고에서, 지난번에 못 옮기고 남은 파일부터 옮긴다
+_last_flush = float("-inf")     # 뜬 뒤 첫 확인에서, 지난번에 못 옮기고 남은 파일부터 옮긴다
+_JOB_SECONDS = 60
 
 
 def flush_due() -> bool:
-    """마지막으로 옮긴 지 한 시간이 지났으면 버퍼를 봉인하고 True. 그러면 부른 쪽이 응답을 보낸 뒤에
-    flush_reports 를 돌려서, 보드는 DB 를 기다리지 않는다. 봉인 때문에 이벤트 루프에서만 부른다."""
+    """마지막으로 옮긴 지 한 시간이 지났으면 버퍼를 봉인하고 True."""
     global _last_flush
     if time.monotonic() - _last_flush < _FLUSH_SECONDS:
         return False
     _last_flush = time.monotonic()
     buffer.seal()
     return True
+
+
+def run_due_jobs() -> None:
+    """할 때가 된 작업을 한다. 지금은 한 시간마다 보고 옮기기 하나다. 옮길 보고가 없으면 DB 를 깨우지
+    않는다. 보드가 모두 꺼져 있을 때 Neon 이 한 시간마다 깨어나지 않게 하려는 것이다."""
+    if flush_due() and buffer.has_sealed():
+        flush_reports()
+
+
+def run_jobs() -> None:
+    """앱이 떠 있는 동안 1분마다 할 일이 있는지 본다. server.py 가 데몬 스레드로 띄운다. 한 번 실패해도
+    스레드가 멈추지 않게 예외를 잡는다. 멈추면 보고가 버퍼에 쌓이기만 한다."""
+    while True:
+        time.sleep(_JOB_SECONDS)
+        try:
+            run_due_jobs()
+        except Exception as e:
+            print(f"scheduled job failed: {e!r}", flush=True)
 
 
 def flush_reports() -> None:

@@ -153,8 +153,8 @@ fly deploy --ha=false
 
 ## 보고 보관
 
-보고는 먼저 `REPORTS_BUFFER` 가 가리키는 파일에 한 줄씩 쌓이고, 한 시간에 한 번 Neon 으로
-옮겨진다. 대시보드를 열면 남은 보고를 먼저 옮긴 뒤 Neon 에서 읽는다. 보고마다 DB 에 쓰지
+보고는 먼저 `REPORTS_BUFFER` 가 가리키는 파일에 한 줄씩 쌓이고, 앱 안의 타이머가 한 시간에 한 번 Neon
+으로 옮긴다. 옮길 보고가 없으면 DB 를 깨우지 않는다. 대시보드를 열면 남은 보고를 먼저 옮긴 뒤 Neon 에서 읽는다. 보고마다 DB 에 쓰지
 않는 건 Neon 무료 한도 때문이다. 테이블 구조는 [docs/data-structure.ko.md](docs/data-structure.ko.md)
 에 있다. 로컬 실행은 작업 디렉터리의 `pending-reports.jsonl` 을 쓴다 (gitignore 됨).
 

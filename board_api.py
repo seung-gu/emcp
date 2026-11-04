@@ -8,12 +8,10 @@
 import os
 from datetime import datetime, timezone
 
-from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse
 
-import actions
 import buffer
 import checks
 import db.boards
@@ -116,8 +114,8 @@ async def weather_report(request: Request) -> JSONResponse:
         tail += f" scl{int(bool(row.get('room_scl')))} ack={row.get('room_ack') or '-'})"
     print(f"report: {battery_mv}mV {wifi_ms}ms {rssi}dBm{tail}", flush=True)
 
-    background = BackgroundTask(actions.flush_reports) if actions.flush_due() else None
-    return JSONResponse(body, status_code=status, background=background)
+    # Neon 으로 옮기는 건 한 시간마다 타이머가 한다 (actions.run_jobs). 보드는 DB 를 기다리지 않는다.
+    return JSONResponse(body, status_code=status)
 
 
 async def _check_in(report: dict, mac: str | None, ip: str) -> JSONResponse:

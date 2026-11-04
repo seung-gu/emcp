@@ -17,6 +17,7 @@ import threading
 
 from mcp.server.fastmcp import FastMCP
 
+import actions
 import auth
 import board_api
 import devices
@@ -60,4 +61,6 @@ for method, path, handler in ROUTES:
 if __name__ == "__main__":
     # 보드 사본을 미리 채운다. 따로 스레드에서 읽으니 DB 가 느려도 서버는 바로 뜬다
     threading.Thread(target=devices.load, daemon=True).start()
+    # 한 시간마다 보고를 Neon 으로 옮기는 타이머. 요청이 없어도 돈다
+    threading.Thread(target=actions.run_jobs, daemon=True).start()
     mcp.run(transport="streamable-http")
