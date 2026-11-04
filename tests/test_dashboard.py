@@ -1,5 +1,7 @@
 """대시보드: 로그인 확인, 화면, 이름·위치 바꾸기, QR 로 들어오기."""
 
+from markupsafe import escape
+
 import devices
 import web
 from helpers import new_code, post_form, register, sign_in
@@ -99,7 +101,7 @@ def test_qr_when_signed_out_keeps_code_through_sign_in(client, accounts):
     client.cookies.set("emcp_claim", "ABC234")
     sign_in(client, accounts.add("user_me"))
     page = client.get("/dashboard").text
-    assert 'value="ABC234"' in page and web.NOTICES["prefilled"] in page
+    assert 'value="ABC234"' in page and str(escape(web.NOTICES["prefilled"])) in page   # 작은따옴표는 &#39; 로
 
 
 def test_bad_qr_code(client):

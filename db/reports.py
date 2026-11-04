@@ -147,7 +147,7 @@ def _new_entries(row: dict, before: list) -> list:
 
 def read_reports(user_id: str) -> list[dict]:
     """이 사람이 볼 수 있는 보드의 보고를 받은 시각 순으로, 대시보드가 그리는 모양으로. 비어 있는 칸은
-    키째 빠진다 — 옛 파일의 한 줄과 같은 모양이라 dashboard.py 가 둘을 구분하지 않아도 된다."""
+    키째 빠진다 — 옛 파일의 한 줄과 같은 모양이라 dashboard/ 가 둘을 구분하지 않아도 된다."""
     sensor_cols = ", ".join(f"s.{k}" for k in SENSOR_FIELDS)
     with connect() as conn:
         rows = conn.execute(

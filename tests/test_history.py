@@ -3,7 +3,7 @@
 import secrets
 from datetime import datetime, timezone
 
-import dashboard
+import dashboard.page
 import db.boards
 import db.core
 import db.reports
@@ -52,7 +52,7 @@ def test_same_email_imports_old_history():
     assert again != first
     history = db.boards.previous_history("user_b")
     assert [(h["device_id"], h["reports"]) for h in history] == [(again, 1)]
-    page = dashboard.render([], None, boards=db.boards.list_devices("user_b"), history=history)
+    page = dashboard.page.render([], None, boards=db.boards.list_devices("user_b"), history=history)
     assert "가져오기" in page and "그냥 두기" in page and "1건" in page
 
     assert db.boards.import_history("user_b", again)

@@ -231,7 +231,7 @@ read anyone's reports.
 `/dashboard/<mac>` with someone else's MAC returns 404. A 403 would confirm the device exists,
 which is enough to map out who owns what by trying MACs.
 
-The chart and table code in `dashboard.py` stays as it is, because the rows arrive already
+The chart and table code in `dashboard/` stays as it is, because the rows arrive already
 filtered.
 
 ## Known limits

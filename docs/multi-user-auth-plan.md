@@ -124,7 +124,7 @@ Depends on: 4, 5
 Scope:
 - `/dashboard`: my devices, last seen, the claim-code form
 - `/dashboard/<mac>`: today's charts and table, or 404 if the access check fails
-- Chart and table code in `dashboard.py` stays as it is; `rows` arrives filtered
+- Chart and table code in `dashboard/` stays as it is; `rows` arrives filtered
 
 Done when: two devices show separately and never mix.
 

@@ -6,8 +6,8 @@
 3. 로그인과 대시보드 (/auth, /dashboard, /r): web.py.
 
 그 아래에 입구 여럿이 같이 쓰는 동작(actions.py), 입력 검사(checks.py), 보드 사본(devices.py), 보고
-버퍼(buffer.py)가 있고, 맨 아래에 DB(db.py), 로그인(auth.py, WorkOS), 날씨와 지명 검색(weather.py,
-open-meteo)이 있다. 대시보드 HTML 은 dashboard.py 가 그린다. 위 층이 아래 층을 부르고, 반대로는 부르지 않는다.
+버퍼(buffer.py)가 있고, 맨 아래에 DB(db/), 로그인(auth.py, WorkOS), 날씨와 지명 검색(weather.py,
+open-meteo)이 있다. 대시보드 화면은 dashboard/ 가 그린다. 위 층이 아래 층을 부르고, 반대로는 부르지 않는다.
 
 보드 등록 설계는 docs/multi-user-rollout.ko.md 에 있다. 공식 MCP Python SDK(`mcp` 패키지)의 FastMCP 를 쓴다.
 """

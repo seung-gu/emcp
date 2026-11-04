@@ -14,7 +14,7 @@ import actions
 import auth
 import buffer
 import checks
-import dashboard
+import dashboard.page
 import db.boards
 import db.reports
 import db.sharing
@@ -124,7 +124,7 @@ async def dashboard_page(request: Request):
     # QR 로 왔으면 코드를 입력 칸에 채운다. 로그인을 거쳐 왔으면 /r 이 쿠키에 맡겨 둔 코드다.
     prefill = checks.code(request.query_params.get("code")) or checks.code(request.cookies.get("emcp_claim"))
     notice = NOTICES.get(request.query_params.get("notice", "")) or (prefill and NOTICES["prefilled"])
-    response = HTMLResponse(dashboard.render(rows, checks.tag(request.query_params.get("mac")), boards=boards,
+    response = HTMLResponse(dashboard.page.render(rows, checks.tag(request.query_params.get("mac")), boards=boards,
                                              pending=pending, notice=notice, prefill=prefill, history=history,
                                              shares=shares, incoming=incoming))
     if "emcp_claim" in request.cookies:

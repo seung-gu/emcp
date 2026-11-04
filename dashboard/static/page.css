@@ -1,0 +1,101 @@
+  :root { color-scheme: light dark; }
+  [hidden] { display: none !important; }
+  body { font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; background: Canvas; color: CanvasText;
+         margin: 0 auto; padding: 24px; max-width: 1060px; }
+  h1 { font-size: 1.25rem; margin: 0 0 4px; }
+  h2 { font-size: .95rem; margin: 28px 0 8px; }
+  .sub { opacity: .65; margin: 0 0 24px; font-size: .875rem; }
+  .note { font-size: .78rem; opacity: .6; margin: 6px 0 0; }
+  /* 그래프 위에 붙어 다니는 기간 줄. 아래로 내려가며 여러 그래프를 볼 때도 손이 닿게. */
+  .toolbar { position: sticky; top: 0; z-index: 20; background: Canvas; display: flex;
+             flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 10px 0;
+             border-bottom: 1px solid rgba(128,128,128,.25); }
+  .toolbar .range { font-weight: 600; font-size: .9rem; font-variant-numeric: tabular-nums; }
+  .toolbar .group { display: flex; gap: 4px; }
+  .toolbar button { font: inherit; font-size: .78rem; color: inherit; background: none;
+                    padding: 3px 10px; border: 1px solid rgba(128,128,128,.35);
+                    border-radius: 999px; cursor: pointer; }
+  .toolbar button:hover { border-color: currentColor; }
+  .toolbar button:focus-visible { outline: 2px solid currentColor; outline-offset: 1px; }
+  .toolbar .hint { flex-basis: 100%; font-size: .74rem; opacity: .55; }
+  .plot { min-height: 180px; }
+  .plot .u-select { background: rgba(128,128,128,.22); }
+  /* 점을 눌렀을 때 뜨는 상자. 문서 좌표에 두어 스크롤해도 점에 붙어 있다. */
+  .tip { position: absolute; z-index: 10; pointer-events: none; display: flex;
+         flex-direction: column; font-size: .78rem; line-height: 1.45; padding: 7px 10px;
+         background: Canvas; border: 1px solid rgba(128,128,128,.5); border-radius: 6px;
+         box-shadow: 0 2px 10px rgba(0,0,0,.18); white-space: nowrap;
+         font-variant-numeric: tabular-nums; transform: translate(12px, -50%); }
+  .tip.flip { transform: translate(calc(-100% - 12px), -50%); }
+  .tip .dim { margin: 0; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: right; padding: 5px 10px;
+           border-bottom: 1px solid rgba(128,128,128,.25); }
+  th:first-child, td:first-child { text-align: left; }
+  /* 글자가 들어가는 칸만 좌정렬. 나머지는 숫자라 우정렬이 자리를 맞춘다. */
+  th:nth-child(5), td:nth-child(5), th:nth-child(10), td:nth-child(10) { text-align: left; }
+  th { font-weight: 600; opacity: .65; font-size: .8rem; }
+  .empty { opacity: .5; text-align: center; padding: 24px; }
+  /* 칸 이름만으로는 안 통하는 열들의 설명. 표 바로 아래 둔다. */
+  .legend { font-size: .78rem; opacity: .7; margin: 10px 0 0; }
+  .legend dt { font-weight: 600; margin-top: 8px; }
+  .legend dd { margin: 2px 0 0; }
+  /* 보드 고르는 줄. 한 대만 볼 때는 그 보드에 테두리가 진하게 남는다. */
+  .devices { display: flex; flex-wrap: wrap; gap: 6px; margin: -16px 0 24px; }
+  .devices a { font-size: .78rem; text-decoration: none; color: inherit; padding: 3px 9px;
+               border: 1px solid rgba(128,128,128,.35); border-radius: 999px; opacity: .65; }
+  .devices a.on, .devices a:hover { opacity: 1; border-color: currentColor; }
+  .devices a.on { font-weight: 600; }
+  .devices .dim { margin-left: 6px; }
+  /* 이름이 있는 보드에 마우스를 올리면 바로 아래에 MAC 을 띄운다. 보드 버튼은 버튼 어디에 올려도 뜬다. */
+  .board[data-mac] { position: relative; }
+  .board[data-mac]:hover::after, .devices a:hover .board[data-mac]::after {
+    content: attr(data-mac); position: absolute; left: 0; top: 100%; margin-top: 6px; z-index: 30;
+    padding: 2px 7px; font-size: .74rem; font-weight: 400; white-space: nowrap; background: Canvas;
+    color: CanvasText; border: 1px solid rgba(128,128,128,.5); border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.15); font-variant-numeric: tabular-nums; }
+  .logs { margin: 10px 0 16px; font-size: .85rem; }
+  .logs ol { margin: 4px 0 0; padding-left: 22px; }
+  .logs li { padding: 1px 0; }
+  .dim { opacity: .55; margin-left: 8px; font-variant-numeric: tabular-nums; }
+  /* 내 보드 칸. 위쪽 표와 달리 숫자 칸이 없어서 모두 좌정렬한다. */
+  table.boards th, table.boards td { text-align: left; }
+  table.boards form { margin: 0; }
+  table.boards tr.offer td { font-size: .85rem; }
+  table.boards tr.offer form { display: inline; margin-left: 6px; }
+  /* 이름·위치 바꾸기와 보드 추가. 평소에는 접혀 있고 누르면 칸이 열린다. */
+  details.edit { display: inline-block; margin-left: 8px; font-size: .78rem; }
+  details.edit[open] { display: block; margin: 6px 0 0; }
+  details.edit summary, details.add summary { cursor: pointer; opacity: .65; }
+  details.edit form { display: flex; gap: 6px; margin: 6px 0 0; align-items: center; }
+  details.edit .place-pick { flex-direction: column; align-items: flex-start; }
+  table.boards input[name="name"], table.boards input[name="q"] {
+    font: inherit; font-size: .85rem; width: 12em; padding: 2px 8px; color: inherit; background: none;
+    border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
+  .places { list-style: none; margin: 0; padding: 0; }
+  .places li { padding: 2px 0; }
+  .places .dim { margin-left: 0; }
+  .shares { list-style: none; margin: 6px 0 0; padding: 0; }
+  .shares li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .shares .dim { margin-left: 2px; }
+  table.boards input[name="email"] {
+    font: inherit; font-size: .85rem; width: 14em; padding: 2px 8px; color: inherit; background: none;
+    border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
+  .incoming { list-style: none; margin: 0 0 16px; padding: 8px 12px; font-size: .875rem;
+              border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
+  .incoming li { padding: 2px 0; }
+  .incoming form { display: inline; margin-left: 6px; }
+  details.add { margin: 12px 0 0; }
+  details.add summary { font-size: .85rem; }
+  table.boards .dim { margin-left: 0; }
+  .notice { margin: 0 0 16px; padding: 8px 12px; font-size: .875rem;
+            border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
+  .claim { display: flex; gap: 6px; margin: 12px 0 0; }
+  .claim input { font: inherit; font-size: .9rem; width: 9em; padding: 3px 10px; color: inherit;
+                 background: none; border: 1px solid rgba(128,128,128,.45); border-radius: 6px;
+                 letter-spacing: .08em; text-transform: uppercase; }
+  .boards button, .claim button, .incoming button { font: inherit; font-size: .78rem; color: inherit; background: none;
+                                  padding: 3px 10px; border: 1px solid rgba(128,128,128,.35);
+                                  border-radius: 999px; cursor: pointer; }
+  .boards button:hover, .claim button:hover, .incoming button:hover { border-color: currentColor; }
+  .waiting { margin: 8px 0 0; padding-left: 22px; font-size: .85rem; }

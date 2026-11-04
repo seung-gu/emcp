@@ -1,0 +1,6 @@
+{# 보드 표시. 이름이 있으면 이름을 보이고 마우스를 올리면 바로 MAC 이 뜬다 (page.css 의 .board). 브라우저 기본
+   툴팁(title)은 1초쯤 가만히 있어야 떠서 쓰지 않는다. 이름이 없으면 MAC 만. #}
+{% macro board(name, mac) %}{% if name %}<span class="board"{% if mac %} data-mac="{{ mac }}"{% endif %}>{{ name }}</span>{% elif mac %}{{ mac }}{% endif %}{% endmacro %}
+
+{# 보드 번호와 선택 하나를 보내는 버튼 (가져오기/그냥 두기, 수락/거절) #}
+{% macro choice_button(action, device_id, choice, label) %}<form method="post" action="{{ action }}"><input type="hidden" name="device_id" value="{{ device_id }}"><input type="hidden" name="choice" value="{{ choice }}"><button type="submit">{{ label }}</button></form>{% endmacro %}
