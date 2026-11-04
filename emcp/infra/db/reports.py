@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 import psycopg
 from psycopg.types.json import Jsonb
 
-from db.boards import devices_for
-from db.core import connect
+from .boards import devices_for
+from .core import connect
 
 # 보드가 보내는 측정값. 이름 = reports 칸 이름 = 대시보드가 받는 키이고, 값은 서버가 들어온 값을
 # 거를 때 쓰는 타입이다. 새 항목은 여기 한 줄과 MIGRATIONS 의 칸 추가 한 줄이면 된다.

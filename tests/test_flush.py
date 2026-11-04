@@ -2,11 +2,9 @@
 
 import glob
 
-import actions
-import buffer
-import db.boards
-import db.reports
-import devices
+from emcp.infra import db
+from emcp.service import actions
+from emcp.state import buffer, devices
 from helpers import buffered, register, report, sign_in
 
 MAC = "TEST00000001"

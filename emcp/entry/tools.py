@@ -15,14 +15,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from mcp.server.auth.middleware.auth_context import get_access_token
 from starlette.concurrency import run_in_threadpool
 
-import actions
-import buffer
-import checks
-import db.boards
-import db.reports
-import devices
-import weather
-from dashboard.reports import DEFAULT_TZ, RESET_KO
+from emcp.infra import db, weather
+from emcp.service import actions, checks
+from emcp.state import buffer, devices
+from emcp.entry.dashboard.reports import DEFAULT_TZ, RESET_KO
 
 
 def _caller() -> str:

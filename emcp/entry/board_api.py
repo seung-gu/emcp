@@ -15,13 +15,9 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 
-import buffer
-import checks
-import db.boards
-import db.reports
-import devices
-import firmware
-import weather
+from emcp.infra import db, firmware, weather
+from emcp.service import checks
+from emcp.state import buffer, devices
 
 # 옛 펌웨어가 DB 와 다른 이름으로 보내는 항목. 4단계 펌웨어는 새 이름으로 보내지만, 옛 펌웨어 보드가 남아
 # 있는 동안 둘 다 받는다.

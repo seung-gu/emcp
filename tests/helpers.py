@@ -7,10 +7,9 @@ import time
 
 from workos.session import seal_data
 
-import buffer
-import checks
-import db.boards
-import devices
+from emcp.infra import db
+from emcp.service import checks
+from emcp.state import buffer, devices
 
 def new_token() -> str:
     return secrets.token_hex(32)

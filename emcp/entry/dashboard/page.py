@@ -10,7 +10,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from markupsafe import Markup
 
-from dashboard import reports
+from . import reports
 
 _HERE = Path(__file__).parent
 _env = Environment(loader=FileSystemLoader(_HERE / "templates"), autoescape=True, undefined=StrictUndefined,

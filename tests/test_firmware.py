@@ -2,8 +2,8 @@
 
 import pytest
 
-import actions
-import firmware
+from emcp.infra import firmware
+from emcp.service import actions
 from helpers import register, report
 
 MAC = "TEST00000001"

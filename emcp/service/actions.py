@@ -14,13 +14,9 @@ from datetime import datetime, timedelta, timezone
 import sentry_sdk
 from starlette.concurrency import run_in_threadpool
 
-import auth
-import buffer
-import checks
-import db.boards
-import db.core
-import devices
-import firmware
+from emcp.infra import auth, db, firmware
+from emcp.service import checks
+from emcp.state import buffer, devices
 
 # --- 등록 코드 입력 ---
 

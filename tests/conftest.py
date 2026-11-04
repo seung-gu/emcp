@@ -48,16 +48,11 @@ import httpx  # noqa: E402
 from mcp.server.auth.provider import AccessToken  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 
-import actions  # noqa: E402
-import auth  # noqa: E402
-import board_api  # noqa: E402
-import buffer  # noqa: E402
-import checks  # noqa: E402
-import db.core  # noqa: E402
-import devices  # noqa: E402
-import firmware  # noqa: E402
-import server  # noqa: E402
-import web  # noqa: E402
+from emcp import server  # noqa: E402
+from emcp.entry import board_api, web  # noqa: E402
+from emcp.infra import auth, db, firmware  # noqa: E402
+from emcp.service import actions, checks  # noqa: E402
+from emcp.state import buffer, devices  # noqa: E402
 
 
 # --- open-meteo ---

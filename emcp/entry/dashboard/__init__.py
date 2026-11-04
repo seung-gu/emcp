@@ -5,3 +5,5 @@
 - templates/: 마크업. page.html 이 페이지 전체, boards.html 이 보드 관리 칸
 - static/: 스타일과 스크립트. 페이지에 그대로 들어간다
 """
+
+from . import reports, page  # noqa: F401

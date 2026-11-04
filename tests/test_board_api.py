@@ -2,10 +2,10 @@
 
 import sentry_sdk
 
-import actions
-import board_api
-import db.boards
-import devices
+from emcp.entry import board_api
+from emcp.infra import db
+from emcp.service import actions
+from emcp.state import devices
 from helpers import buffered, check_in, new_code, new_token, post_form, register, report, tool
 
 MAC = "TEST00000001"

@@ -2,8 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
-import db.reports
-import db.sharing
+from emcp.infra import db
 from helpers import mcp, register, report, tool
 
 MAC = "TEST00000001"

@@ -1,13 +1,12 @@
-"""emcp: e-ink 날씨 보드 서버. 이 파일은 다른 파일의 경로와 도구를 앱 하나로 묶어 실행한다.
+"""emcp: e-ink 날씨 보드 서버. 이 파일은 입구의 경로와 도구를 앱 하나로 묶어 실행한다 (python -m emcp.server).
 
-들어오는 곳은 셋이다.
+들어오는 곳은 셋이다 (entry/).
 1. MCP (Streamable HTTP, /mcp): tools.py. 로그인한 사람만 쓰고, 도구는 부른 사람의 보드만 다룬다.
 2. 보드와 펌웨어 릴리스용 HTTP (POST /weather, /firmware): board_api.py.
 3. 로그인과 대시보드 (/auth, /dashboard, /r): web.py.
 
-그 아래에 입구 여럿이 같이 쓰는 동작(actions.py), 입력 검사(checks.py), 보드 사본(devices.py), 보고
-버퍼(buffer.py)가 있고, 맨 아래에 DB(db/), 로그인(auth.py, WorkOS), 날씨와 지명 검색(weather.py,
-open-meteo), 펌웨어 릴리스(firmware.py, GitHub)가 있다. 대시보드 화면은 dashboard/ 가 그린다. 위 층이 아래 층을 부르고, 반대로는 부르지 않는다.
+층마다 폴더 하나다. 위 층이 아래 층을 부르고, 반대로는 부르지 않는다: entry → service → state → infra.
+층마다 무엇이 있는지는 그 폴더의 __init__.py 에 있다.
 
 보드 등록 설계는 docs/multi-user-rollout.ko.md 에 있다. 공식 MCP Python SDK(`mcp` 패키지)의 FastMCP 를 쓴다.
 """
@@ -18,12 +17,10 @@ import threading
 import sentry_sdk
 from mcp.server.fastmcp import FastMCP
 
-import actions
-import auth
-import board_api
-import devices
-import tools
-import web
+from emcp.entry import board_api, tools, web
+from emcp.infra import auth
+from emcp.service import actions
+from emcp.state import devices
 
 # 에러 알림. SENTRY_DSN 이 있을 때만 켠다 (fly secrets). 잡지 못한 예외는 Sentry 가 알아서 보내고, 잡아서 로그만
 # 남기는 곳(보고 옮기기, 등록 확인, 보드 사본 읽기 등)은 그 자리에서 sentry_sdk.capture_exception 으로 보낸다.

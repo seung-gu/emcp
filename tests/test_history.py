@@ -3,10 +3,8 @@
 import secrets
 from datetime import datetime, timezone
 
-import dashboard.page
-import db.boards
-import db.core
-import db.reports
+from emcp.entry import dashboard
+from emcp.infra import db
 from helpers import new_code
 
 MAC = "TESTHIST0001"

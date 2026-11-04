@@ -2,9 +2,7 @@
 
 from datetime import datetime, timezone
 
-import auth
-import db.boards
-import db.core
+from emcp.infra import auth, db
 from helpers import post_form, register, sign_in
 
 MAC = "TEST00000001"

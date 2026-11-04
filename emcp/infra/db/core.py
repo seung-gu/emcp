@@ -7,7 +7,7 @@ import os
 import psycopg
 from psycopg.rows import dict_row
 
-from db.migrations import MIGRATIONS
+from .migrations import MIGRATIONS
 
 _migrated = False
 

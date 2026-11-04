@@ -95,7 +95,7 @@ LLM 이 기억에 의존해 좌표를 넣으면 **틀려도 에러 없이 엉뚱
 #### 펌웨어 업데이트
 
 펌웨어 저장소에 `v` 로 시작하는 태그를 push 하면 GitHub 릴리스가 생긴다. 릴리스 워크플로가 마지막에
-`POST /firmware/refresh` 로 알리면 서버가 바로 최신 릴리스를 받아 두고(`firmware.py`), 받은 커밋을 돌려준다.
+`POST /firmware/refresh` 로 알리면 서버가 바로 최신 릴리스를 받아 두고(`emcp/infra/firmware.py`), 받은 커밋을 돌려준다.
 워크플로는 그 커밋이 태그 커밋과 같아야 성공으로 끝난다. 서버가 GitHub 에 묻는 건 이때와, 켜질 때 한 번(받아 둔
 릴리스가 메모리에만 있어서)뿐이다.
 
@@ -104,6 +104,20 @@ LLM 이 기억에 의존해 좌표를 넣으면 **틀려도 에러 없이 엉뚱
 `GET /firmware/<보드 종류>/<버전>` 으로 받아 설치하고 다시 켜진다. 릴리스에 없는 커밋이나 `-dirty` 빌드로 직접
 올린 보드에는 주지 않는다. 릴리스 빌드는 `fw_version` 에 태그 이름(`v1`)을 실어서 대시보드에 그대로 보이고,
 `fw_commit` 이 없는 옛 펌웨어는 `fw_version` 이 커밋이다.
+
+## 코드 구조
+
+폴더 하나가 층 하나다. 위 층만 아래 층을 부른다. 층마다 무엇이 있는지는 그 폴더의 `__init__.py` 에 있다.
+
+```
+emcp/
+  server.py     조립: 경로와 도구를 앱 하나로 묶어 실행 (python -m emcp.server)
+  entry/        1층 입구: board_api.py (보드), web.py (로그인, 대시보드), tools.py (MCP), dashboard/ (화면)
+  service/      2층 입구 여럿이 같이 쓰는 동작: actions.py, checks.py
+  state/        3층 서버 메모리: devices.py (보드 사본), buffer.py (보고 버퍼)
+  infra/        4층 바깥: db/ (Neon), auth.py (WorkOS), weather.py (open-meteo), firmware.py (GitHub)
+tests/          pytest (Docker Postgres)
+```
 
 ## 로컬 실행
 
@@ -120,7 +134,7 @@ WORKOS_COOKIE_PASSWORD=<Fernet 키>
 
 ```bash
 uv sync
-uv run --env-file .env python server.py   # 기본 포트 8080, PORT 환경변수로 변경 가능
+uv run --env-file .env python -m emcp.server   # 기본 포트 8080, PORT 환경변수로 변경 가능
 ```
 
 확인:

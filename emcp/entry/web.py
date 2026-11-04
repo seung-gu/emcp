@@ -11,16 +11,10 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 
-import actions
-import auth
-import buffer
-import checks
-import dashboard.page
-import db.boards
-import db.reports
-import db.sharing
-import devices
-import weather
+from emcp.entry import dashboard
+from emcp.infra import auth, db, weather
+from emcp.service import actions, checks
+from emcp.state import buffer, devices
 
 # 로그인 쿠키. HttpOnly: 페이지 스크립트가 못 읽는다. Secure: https 에서만 (로컬 http 는 예외).
 # SameSite=Lax: 다른 사이트에서 보낸 POST 에는 실리지 않는다.

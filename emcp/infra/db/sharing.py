@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from db.boards import OWNED_BY
-from db.core import connect
+from .boards import OWNED_BY
+from .core import connect
 
 def share_device(owner_id: str, device_id: int, viewer_id: str, email: str) -> bool:
     """주인이면 그 계정에 공유를 요청한다. 받는 사람이 수락하기 전에는 아무것도 보이지 않는다. 이미 요청했거나

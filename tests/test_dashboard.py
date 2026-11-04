@@ -2,8 +2,8 @@
 
 from markupsafe import escape
 
-import devices
-import web
+from emcp.entry import web
+from emcp.state import devices
 from helpers import new_code, post_form, register, sign_in
 
 MAC = "TEST00000001"

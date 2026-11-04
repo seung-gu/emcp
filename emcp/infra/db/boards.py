@@ -6,7 +6,7 @@ import hashlib
 
 import psycopg
 
-from db.core import connect
+from .core import connect
 
 # 등록 코드 줄이 살아 있는 시간. 사람이 코드를 넣고 1시간 안에 보드가 물어오면(RESET) 연결된다. 보드 쪽 코드는
 # 등록될 때까지 그대로라, 지나면 같은 코드를 다시 넣으면 된다.

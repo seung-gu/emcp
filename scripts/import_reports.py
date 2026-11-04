@@ -9,7 +9,7 @@ at_estimated 는 쓰는 곳이 없어 옮기지 않는다. 원본(raw)과 날씨
 import json
 import sys
 
-import db.reports
+from emcp.infra import db
 
 
 def convert(old: dict) -> dict:

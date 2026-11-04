@@ -5,7 +5,7 @@
       "name": "emcp server",
       "type": "debugpy",
       "request": "launch",
-      "program": "${workspaceFolder}/server.py",
+      "module": "emcp.server",
       "console": "integratedTerminal",
       "justMyCode": false,
       "env": { "PORT": "8080" }

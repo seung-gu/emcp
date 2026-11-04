@@ -3,7 +3,7 @@
 import re
 import time
 
-import db.reports
+from emcp.infra import db
 
 # 보드가 만드는 값의 모양. 펌웨어와 맞춘 약속이다. 토큰은 32바이트 난수를 소문자 16진수로 쓴 64자,
 # 등록 코드는 헷갈리는 0, 1, I, O 를 뺀 32글자 중 6자리다.

@@ -8,7 +8,7 @@ Neon 으로 옮길 때 (DB 가 어차피 깨어 있을 때), 위치를 바꾸거
 
 import sentry_sdk
 
-import db.boards
+from emcp.infra import db
 
 DEFAULT_LOCATION = {"name": "뮌헨", "lat": 48.14, "lon": 11.58}
 _by_token: dict[str, dict] = {}

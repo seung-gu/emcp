@@ -13,7 +13,7 @@ import time
 
 import sentry_sdk
 
-import db.reports
+from emcp.infra import db
 
 PATH = os.getenv("REPORTS_BUFFER", "pending-reports.jsonl")
 _write_lock = threading.Lock()     # 보고 덧붙이기와 봉인 사이. 봉인은 타이머 스레드에서도 한다

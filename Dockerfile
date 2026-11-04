@@ -8,11 +8,9 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 # 애플리케이션 코드
-COPY *.py ./
-COPY db ./db
-COPY dashboard ./dashboard
+COPY emcp ./emcp
 
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["uv", "run", "--no-sync", "python", "server.py"]
+CMD ["uv", "run", "--no-sync", "python", "-m", "emcp.server"]
