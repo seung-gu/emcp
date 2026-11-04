@@ -118,6 +118,18 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8080/mcp     #
 로컬도 운영과 같은 Neon 을 쓴다. 로컬에 `POST /weather` 로 보고를 보내면 한 시간 안에 Neon 으로
 옮겨져 진짜 기록에 섞인다.
 
+## 테스트
+
+테스트는 Docker 로 띄운 로컬 Postgres(운영 Neon 과 같은 18)에서 돈다. 운영 DB, WorkOS, open-meteo
+에는 닿지 않고, 테이블은 테스트마다 비운다.
+
+```bash
+sh scripts/test-db.sh   # 처음 한 번, 또는 Docker 를 다시 켠 뒤
+uv run pytest
+```
+
+`TEST_DATABASE_URL` 로 다른 로컬 DB 를 쓸 수 있다. 주소가 로컬이 아니면 테스트가 시작하지 않는다.
+
 ## Fly.io 배포
 
 아직 Neon 으로 옮기지 않은 보고를 담아 둘 볼륨과 DB 접속 주소가 먼저 있어야 한다. 볼륨은
