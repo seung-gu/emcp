@@ -39,7 +39,7 @@ mcp = FastMCP("emcp", host="0.0.0.0", port=_port, stateless_http=True,
               **auth.fastmcp_options())
 
 for tool in (tools.register_device, tools.get_weather_location, tools.set_weather_location,
-             tools.rename_device, tools.search_location):
+             tools.rename_device, tools.search_location, tools.get_reports):
     mcp.tool()(tool)
 
 ROUTES = [

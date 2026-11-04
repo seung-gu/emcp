@@ -4,18 +4,25 @@
 - `get_weather_location` 으로 내 보드와 각 보드의 날씨 위치를 본다.
 - `search_location` 으로 지명의 좌표 후보를 찾고, 고른 좌표를 `set_weather_location` 에 넘겨 보드 하나의 위치를
   바꾼다. `rename_device` 로 보드에 이름을 붙인다.
+- `get_reports` 로 보드 하나의 최근 보고(배터리, 신호, 실내 온습도, 깨어난 이유)를 읽는다.
 
 server.py 가 이 함수들을 도구로 등록한다. 함수 이름이 도구 이름이고 docstring 이 Claude 가 읽는 설명이다.
 """
+
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from mcp.server.auth.middleware.auth_context import get_access_token
 from starlette.concurrency import run_in_threadpool
 
 import actions
+import buffer
 import checks
 import db.boards
+import db.reports
 import devices
 import weather
+from dashboard.reports import DEFAULT_TZ, RESET_KO
 
 
 def _caller() -> str:
@@ -104,3 +111,68 @@ async def search_location(query: str, count: int = 5) -> str:
         f" / {r['latitude']},{r['longitude']} / 인구 {r.get('population', '-')}"
         for r in results
     )
+
+
+# get_reports 가 보여 주는 보고 줄 수. 30분마다 보고하므로 하루치다.
+_REPORT_LINES = 48
+
+
+def _zone(name: str | None) -> ZoneInfo:
+    try:
+        return ZoneInfo(name or DEFAULT_TZ)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(DEFAULT_TZ)
+
+
+def _cell(v) -> str:
+    return "-" if v is None else str(v)
+
+
+async def get_reports(device_id: int, hours: int = 24) -> str:
+    """보드 하나의 최근 보고를 읽는다. 배터리 전압, Wi-Fi 신호와 연결 시간, 실내 온도와 습도, 평소와 다르게
+    깨어난 이유(전원투입, 브라운아웃 등), 서버에 닿지 못해 나중에 실려 온 보고 수를 보여 준다. 내 보드와
+    수락한 공유 보드만 볼 수 있다. 시각은 그 보드 날씨 위치의 현지 시각이다.
+
+    Args:
+        device_id: 보드 번호 (`get_weather_location` 이 보여주는 첫 칸).
+        hours: 몇 시간 전 보고부터 볼지 (1~168, 기본 24).
+    """
+    hours = max(1, min(hours, 168))
+    user = _caller()
+    boards = await run_in_threadpool(db.boards.list_devices, user)
+    board = next((b for b in boards if b["id"] == device_id), None)
+    if board is None:
+        return f"{device_id}번 보드는 볼 수 없다 (내 보드나 수락한 공유 보드가 아니거나 없는 번호)"
+    # 대시보드처럼, 버퍼에만 있는 방금 들어온 보고까지 Neon 으로 옮긴 뒤 읽는다
+    buffer.seal()
+    await run_in_threadpool(actions.flush_reports)
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    rows = await run_in_threadpool(db.reports.recent_reports, user, device_id, since) or []
+    name = board["name"] or board["mac"] or f"{device_id}번 보드"
+    if not rows:
+        return f"{name}: 최근 {hours}시간 동안 보고가 없다"
+
+    zone = _zone(rows[-1]["timezone"])
+    last = rows[-1]
+    batteries = [r["battery_mv"] for r in rows if r["battery_mv"] is not None]
+    unusual = [RESET_KO.get(r["reset_reason"], f"코드 {r['reset_reason']}") for r in rows
+               if r["reset_reason"] is not None and r["reset_reason"] != 8]   # 8 은 타이머로 정상 기상
+    lines = [
+        f"{name} ({board['mac'] or 'MAC 없음'}) / 최근 {hours}시간 보고 {len(rows)}건 / 시각은 {zone.key}",
+        f"마지막 보고 {last['received_at'].astimezone(zone):%m-%d %H:%M}, 배터리 {_cell(last['battery_mv'])} mV"
+        + (f" (기간 중 최저 {min(batteries)}, 최고 {max(batteries)})" if batteries else "")
+        + f", 신호 {_cell(last['rssi'])} dBm, 실내 {_cell(last['room_c'])}°C {_cell(last['room_rh'])}%,"
+        f" 펌웨어 {_cell(last['fw_version'])}",
+        f"평소와 다른 깨어남 {len(unusual)}건" + (f" ({', '.join(unusual)})" if unusual else "")
+        + f", 못 보낸 보고 {sum(r['logged'] for r in rows)}건",
+        "",
+        "시각 / 배터리 mV / 신호 dBm / Wi-Fi ms / 실내 °C / 습도 % / 깨어난 이유",
+    ]
+    shown = rows[-_REPORT_LINES:]
+    if len(shown) < len(rows):
+        lines.append(f"(가장 최근 {len(shown)}건만)")
+    for r in reversed(shown):
+        reason = "" if r["reset_reason"] in (None, 8) else RESET_KO.get(r["reset_reason"], f"코드 {r['reset_reason']}")
+        lines.append(f"{r['received_at'].astimezone(zone):%m-%d %H:%M} / {_cell(r['battery_mv'])} / {_cell(r['rssi'])}"
+                     f" / {_cell(r['wifi_ms'])} / {_cell(r['room_c'])} / {_cell(r['room_rh'])} / {reason}")
+    return "\n".join(lines)

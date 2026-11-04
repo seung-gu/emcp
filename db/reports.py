@@ -145,6 +145,21 @@ def _new_entries(row: dict, before: list) -> list:
     return [e for e in entries if not (e.get("kind") == "http" and e.get("http_code") == 500)]
 
 
+def recent_reports(user_id: str, device_id: int, since: datetime) -> list[dict] | None:
+    """이 사람이 볼 수 있는 보드 하나의 since 이후 보고, 받은 시각 순. Claude 의 get_reports 가 쓴다. 볼 수 없는
+    보드면 None 이다. 남의 보드와 없는 번호를 구분하지 않는다."""
+    with connect() as conn:
+        if device_id not in devices_for(conn, user_id):
+            return None
+        return conn.execute(
+            "SELECT r.received_at, r.fw_version, r.battery_mv, r.rssi, r.wifi_ms, r.chip_c, r.room_c, r.room_rh,"
+            " r.reset_reason, r.timezone,"
+            " (SELECT count(*) FROM wake_logs w WHERE w.report_id = r.id) AS logged"
+            " FROM reports r WHERE r.device_id = %s AND r.received_at >= %s ORDER BY r.received_at",
+            (device_id, since),
+        ).fetchall()
+
+
 def read_reports(user_id: str) -> list[dict]:
     """이 사람이 볼 수 있는 보드의 보고를 받은 시각 순으로, 대시보드가 그리는 모양으로. 비어 있는 칸은
     키째 빠진다 — 옛 파일의 한 줄과 같은 모양이라 dashboard/ 가 둘을 구분하지 않아도 된다."""
