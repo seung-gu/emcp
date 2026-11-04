@@ -14,7 +14,7 @@ XIAO = b"\xe9" + b"x" * 1000   # 펌웨어 파일 대신
 
 @pytest.fixture
 def released(releases):
-    releases.publish([NEW, OLD, "a" * 40], {"weather-xiao.bin": XIAO, "weather-supermini.bin": b"\xe9s"})
+    releases.publish([NEW, OLD, "a" * 40], {"weather-xiao.bin": XIAO})
     firmware.refresh()
     return releases
 
@@ -32,7 +32,7 @@ def test_old_board_gets_the_new_version_and_downloads_it(client, accounts, relea
     {"fw_board": "weather-xiao", "fw_version": OLD[:7] + "-dirty"},  # 수정 중인 빌드
     {"fw_board": "weather-xiao", "fw_version": "d" * 7},             # 릴리스에 없는 커밋
     {"fw_board": "weather-xiao", "fw_version": OLD[:7], "battery_mv": 3600},   # 배터리 부족
-    {"fw_board": "led-supermini", "fw_version": OLD[:7]},            # 릴리스에 없는 보드 종류
+    {"fw_board": "weather-supermini", "fw_version": OLD[:7]},        # 릴리스에 없는 보드 종류
     {"fw_version": OLD[:7]},                                         # 업데이트를 모르는 옛 펌웨어
     {"fw_board": ["weather-xiao"], "fw_version": OLD[:7]},           # 이상한 값
 ])
@@ -51,7 +51,7 @@ def test_no_offer_without_a_release(client, accounts):
 
 def test_only_the_latest_release_is_served(client, released):
     assert client.get(f"/firmware/weather-xiao/{OLD}").status_code == 404
-    assert client.get(f"/firmware/led-supermini/{NEW}").status_code == 404
+    assert client.get(f"/firmware/weather-supermini/{NEW}").status_code == 404
 
 
 def test_downloads_are_limited_per_ip(client, released):
@@ -68,7 +68,7 @@ def test_keeps_the_last_release_when_github_fails(released):
 
 def test_timer_picks_up_a_new_release(released):
     newer = "e" * 40
-    released.publish([newer, NEW, OLD], {"weather-xiao.bin": b"\xe9new", "weather-supermini.bin": b"\xe9s"})
+    released.publish([newer, NEW, OLD], {"weather-xiao.bin": b"\xe9new"})
     actions._last_firmware_check = float("-inf")
     actions.run_due_jobs()
     assert firmware.offer("weather-xiao", NEW[:7], 4000) == newer

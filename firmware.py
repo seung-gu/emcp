@@ -13,7 +13,9 @@ import re
 import httpx
 
 LATEST = "https://github.com/seung-gu/eink-weather-display/releases/latest/download/"
-BOARDS = ("weather-xiao", "weather-supermini")   # 펌웨어 저장소 platformio.ini 의 env 이름
+# 릴리스에 올리는 보드 종류. 펌웨어 저장소 platformio.ini 의 env 이름이고, 그 저장소 release.yml 이 빌드하는
+# 목록과 같아야 한다. Super Mini(weather-supermini)는 쓰는 보드가 없어서 뺐다.
+BOARDS = ("weather-xiao",)
 MIN_BATTERY_MV = 3700   # 이보다 낮으면 업데이트를 미룬다. 받는 도중에 전원이 꺼지지 않게
 
 # 받아 둔 최신 릴리스. commit 은 릴리스 커밋의 SHA, older 는 그 조상 커밋들, files 는 보드 종류마다 펌웨어.
