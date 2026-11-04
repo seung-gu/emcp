@@ -1,86 +1,109 @@
-# emcp — e-ink 날씨 보드 서버
+[English](README.md) | [한국어](docs/ko/README.md)
 
-ESP32 e-ink 보드는 깨어날 때마다 이 서버에 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를
-받아 화면에 그린다. 사람은 Claude / ChatGPT 에서 MCP 도구로 자기 보드의 날씨 위치와 이름을 바꾸고,
-`/dashboard` 에서 보고를 본다. **이 저장소는 서버만 다룬다** (ESP32 펌웨어는 별도).
+# emcp
+
+Server for an ESP32 e-ink weather board. Each board reports its state on every wake and gets the weather for its location in the same response. Owners rename boards and change their weather location from Claude or ChatGPT over MCP, and read the reports on a web dashboard. The firmware lives in [eink-weather-display](https://github.com/seung-gu/eink-weather-display).
+
+[![deploy](https://github.com/seung-gu/emcp/actions/workflows/deploy.yml/badge.svg)](https://github.com/seung-gu/emcp/actions/workflows/deploy.yml)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![uv](https://img.shields.io/badge/uv-package%20manager-DE5FE9?logo=uv&logoColor=white)
+![MCP](https://img.shields.io/badge/MCP-1.28%20FastMCP-111111?logo=modelcontextprotocol&logoColor=white)
+![Starlette](https://img.shields.io/badge/Starlette-1.3-009688)
+![Jinja](https://img.shields.io/badge/Jinja-3.1-B41717?logo=jinja&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-4169E1?logo=postgresql&logoColor=white)
+![Neon](https://img.shields.io/badge/Neon-serverless%20Postgres-00E599?logo=neon&logoColor=black)
+![WorkOS](https://img.shields.io/badge/WorkOS-AuthKit-6363F1)
+![open-meteo](https://img.shields.io/badge/open--meteo-weather%20API-FF8800)
+![Fly.io](https://img.shields.io/badge/Fly.io-fra-8B5CF6?logo=flydotio&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Sentry](https://img.shields.io/badge/Sentry-362D59?logo=sentry&logoColor=white)
+![pytest](https://img.shields.io/badge/pytest-9.2-0A9EDC?logo=pytest&logoColor=white)
+
+![Claude or ChatGPT, a browser and the ESP32 board call the emcp server on Fly.io, which uses Neon Postgres, WorkOS, open-meteo and GitHub Releases](docs/diagrams/architecture.png)
+
+Sign-in goes through WorkOS AuthKit, and every person sees only their own boards. Board registration design: [docs/multi-user-rollout.ko.md](docs/multi-user-rollout.ko.md) (Korean).
+
+## Stack
+
+| Area | Used | For |
+|---|---|---|
+| Language, packages | Python 3.12, uv | whole server, `uv.lock` |
+| MCP | official `mcp` SDK, FastMCP (Streamable HTTP, stateless) | tools for Claude and ChatGPT |
+| Web | Starlette, uvicorn, Jinja2 | board API, dashboard, sign-in |
+| Database | Neon Postgres 18, psycopg 3 | boards, reports, sharing |
+| Sign-in | WorkOS AuthKit (Staging), PyJWT | dashboard sign-in, MCP token check |
+| Outbound HTTP | httpx | open-meteo, GitHub Releases |
+| Weather | open-meteo (forecast and geocoding, no API key) | `/weather` answers, place search |
+| Hosting | Fly.io `fra`, shared-cpu-1x, 256 MB, one machine always on | production server |
+| Storage on the machine | Fly volume `/data` | reports waiting for the hourly move to Neon |
+| CI/CD | GitHub Actions | tests, then deploy on every push to `main` |
+| Monitoring | Sentry (EU), uptime check every 5 minutes | error and downtime mail |
+| Tests | pytest, Postgres 18 in Docker | no production services touched |
+
+## MCP tools
+
+Endpoint `https://<host>/mcp`, Streamable HTTP, sign-in required. Each tool works only on the caller's boards.
+
+| Tool | Does |
+|---|---|
+| `register_device(code)` | adds a board to the account with the 6-character code on its screen |
+| `get_weather_location` | lists the caller's boards: number, name, MAC, weather location, role (`"3 / 거실 / E8F60A17AF28 / 뮌헨 (기본값) / 주인"`) |
+| `search_location(query, count=5)` | coordinate candidates for a place name (open-meteo geocoding) |
+| `set_weather_location(device_id, name, latitude, longitude)` | sets one board's weather location; owner only |
+| `rename_device(device_id, name)` | renames one board; owner only |
+| `get_reports(device_id, hours=24)` | recent reports of an own or accepted shared board: battery, Wi-Fi, room climate, unusual wakes; 1 to 168 hours |
+
+A board without a location shows Munich. Changing the location takes three calls (tool output is in Korean):
 
 ```
-[Claude / ChatGPT] --MCP /mcp (로그인)----->  ┌───────────┐ --보드, 보고--> Neon
-[브라우저]         --/dashboard (로그인)--->  │ emcp 서버 │
-[ESP32 보드]       --POST /weather (보고)-->  └───────────┘ --날씨-------> open-meteo (키 불필요)
-```
-
-로그인은 WorkOS AuthKit 이 맡고, 사람마다 자기 보드만 본다. 설계와 진행 상황은
-[docs/multi-user-rollout.ko.md](docs/multi-user-rollout.ko.md) 에 있다.
-
-## 인터페이스
-
-### 1. MCP (Claude / ChatGPT 용)
-
-- 전송: Streamable HTTP, 엔드포인트 `https://<host>/mcp` (공식 `mcp` Python SDK)
-- 도구:
-  | 도구 | 동작 |
-  |------|------|
-  | `register_device(code)` | 보드 디스플레이의 6자리 등록 코드로 보드를 내 계정에 등록 |
-  | `get_weather_location` | 내 보드마다 번호, 이름, MAC, 날씨 위치, 역할 (`"3 / 거실 / E8F60A17AF28 / 뮌헨 (기본값) / 주인"`) |
-  | `search_location(query, count=5)` | 지명으로 좌표 후보 검색 (open-meteo geocoding) |
-  | `set_weather_location(device_id, name, latitude, longitude)` | 보드 하나의 날씨 위치 설정. 주인만 |
-  | `rename_device(device_id, name)` | 보드 이름 바꾸기. 주인만 |
-
-위치를 정하지 않은 보드는 뮌헨으로 조회한다. 날씨 위치를 바꾸는 정상 흐름은
-**`get_weather_location` 으로 보드 번호 확인 → `search_location` → 후보 선택 →
-`set_weather_location`** 이다:
-
-```
-사용자: "거실 보드 베를린 날씨로 바꿔줘"
+User: "Switch the living room board to Berlin"
   → get_weather_location()
       3 / 거실 / E8F60A17AF28 / 뮌헨 (기본값) / 주인
   → search_location("Berlin")
       베를린 / 베를린 / 독일 / 52.52437,13.41053 / 인구 3426354
-      벌린 / 뉴햄프셔주 / 미국 / 44.46867,-71.18508 / 인구 9367   ← 동명이지 주의
+      벌린 / 뉴햄프셔주 / 미국 / 44.46867,-71.18508 / 인구 9367   ← same name, other place
   → set_weather_location(3, "베를린", 52.52437, 13.41053)
 ```
 
-LLM 이 기억에 의존해 좌표를 넣으면 **틀려도 에러 없이 엉뚱한 도시 날씨가 뜬다.**
-그래서 검색 단계를 도구로 노출했다. 질의는 한글보다 로마자가 정확하다 — `"광주"`
-는 충남 천안의 작은 지명 하나만 나오지만 `"Gwangju"` 는 광주광역시가 최상단이다.
+The search step exists because coordinates an LLM recalls from memory can be wrong without any error, and the board then shows another city's weather. Romanized queries work better than Korean ones: `"광주"` returns one small place near Cheonan, while `"Gwangju"` puts Gwangju Metropolitan City first.
 
-### 2. HTTP (ESP32 용)
+## HTTP routes
 
-| 메서드 & 경로 | 응답 | 용도 |
-|---------------|------|------|
-| `POST /weather`| 날씨 JSON (아래) | ESP32 가 wake 마다 호출. 등록 전에는 등록 확인 |
-| `GET /firmware/<보드 종류>/<버전>` | 펌웨어 파일 | 새 펌웨어 받기 (아래 펌웨어 업데이트) |
-| `POST /firmware/refresh` | `{"commit": "<SHA>"}` | 릴리스 워크플로가 새 릴리스를 바로 받아 가라고 알림 |
-| `GET /r/<코드>` | 대시보드로 이동 | 보드 디스플레이의 QR 이 여는 주소. 코드가 채워진 대시보드로 보낸다 |
-| `GET /health` | `ok` | Fly.io 헬스체크 |
+| Method and path | Answer | Used by |
+|---|---|---|
+| `POST /weather` | weather JSON | board, on every wake; before registration it only asks whether it is registered |
+| `GET /firmware/<board>/<version>` | firmware file | board, during an update; 6 per IP per hour |
+| `POST /firmware/refresh` | `{"commit": "<SHA>"}` | firmware release workflow; 20 per hour in total |
+| `GET /r/<code>` | redirect to the dashboard | QR code on the board's screen, code prefilled |
+| `GET /dashboard` | dashboard | signed-in people |
+| `GET /health` | `ok` | Fly.io health check |
 
-등록 전 보드는 측정값 없이 토큰과 등록 코드만 보내 등록됐는지 묻는다. 등록 순서와 보드가 응답마다
-할 일은 [docs/multi-user-rollout.ko.md](docs/multi-user-rollout.ko.md) 에 있다:
+### Registration
 
-```json
-{"mac": "E8F60A17AF28", "token": "<소문자 16진수 64자>", "claim_code": "4J7K2P"}
-```
-
-| 응답 | 뜻 |
-|------|----|
-| 200 날씨 + `"registered": true` | 등록됨. 이제부터 평소처럼 보고 |
-| 200 `{"registered": false}` | 아직 아무도 코드를 입력하지 않음 |
-| 409 `"new_code": true` | 다른 보드가 같은 코드를 쓰는 중. 코드를 새로 만듦 |
-
-등록된 보드의 본문은 그 wake 의 상태 보고다. 날씨 요청에 얹혀 가므로 왕복이 늘지 않는다.
-서버는 토큰으로 보드를 찾아 그 보드 위치의 날씨를 돌려준다:
+An unregistered board sends only its token and registration code, no measurements. Full sequence: [docs/multi-user-rollout.ko.md](docs/multi-user-rollout.ko.md) (Korean).
 
 ```json
-{"mac": "E8F60A17AF28", "token": "<토큰>", "battery_mv": 3912, "wifi_ms": 184, "rssi": -58}
+{"mac": "E8F60A17AF28", "token": "<64 lowercase hex chars>", "claim_code": "4J7K2P"}
 ```
 
-모르는 토큰(등록 해제된 보드)에는 401 `{"registered": false}` 를 준다. 보드는 이때만 토큰을 지우고
-새 코드를 띄운다. 서버가 보드를 확인하지 못한 경우는 429(횟수 제한)나 503(DB 장애)이라 토큰을 지우지
-않는다.
+| Answer | Meaning |
+|---|---|
+| 200, weather and `"registered": true` | registered; normal reports from now on |
+| 200, `{"registered": false}` | nobody has entered the code yet |
+| 409, `"new_code": true` | another board uses the same code; the board makes a new one |
 
-수치는 숫자로 보내고 `°C` 나 `km/h` 는 기기가 붙인다. 바깥 날씨는 옛 펌웨어가 읽는 이름(`temp_c` 등)과
-새 펌웨어가 읽는 이름(`out_temp_c` 등)을 같이 보낸다:
+### Reports and weather
+
+A registered board's request body is that wake's state report. It rides on the weather request, so a wake costs no extra round trip. The server finds the board by its token and answers with the weather for that board's location.
+
+```json
+{"mac": "E8F60A17AF28", "token": "<token>", "battery_mv": 3912, "wifi_ms": 184, "rssi": -58}
+```
+
+- Unknown token (board removed from its account): 401 `{"registered": false}`. Only then does the board delete its token and show a new code.
+- 429 (rate limit) and 503 (database down) mean the server could not check the board, so the board keeps its token.
+- Values are plain numbers; the board adds `°C` and `km/h`.
+- Outdoor weather goes out under both the old field names (`temp_c`, ...) and the new ones (`out_temp_c`, ...), for old and new firmware.
 
 ```json
 {"city": "뮌헨", "temp_c": 19, "cond": "구름 조금", "wind_kmh": 4,
@@ -89,137 +112,107 @@ LLM 이 기억에 의존해 좌표를 넣으면 **틀려도 에러 없이 엉뚱
  "out_temp_max_c": 24, "out_temp_min_c": 17}
 ```
 
-조회에 실패하면 날씨 키를 통째로 빼고 `{"city": "뮌헨"}` 만 남기며 **HTTP 500** 을
-반환한다. 펌웨어는 상태 코드로 본문을 거르니 이 폴백은 화면에 도달하지 않는다.
+A failed weather lookup returns HTTP 500 with only `{"city": ...}`. The firmware checks the status code first, so this fallback never reaches the screen.
 
-#### 펌웨어 업데이트
+## Firmware updates
 
-펌웨어 저장소에 `v` 로 시작하는 태그를 push 하면 GitHub 릴리스가 생긴다. 릴리스 워크플로가 마지막에
-`POST /firmware/refresh` 로 알리면 서버가 바로 최신 릴리스를 받아 두고(`emcp/infra/firmware.py`), 받은 커밋을 돌려준다.
-워크플로는 그 커밋이 태그 커밋과 같아야 성공으로 끝난다. 서버가 GitHub 에 묻는 건 이때와, 켜질 때 한 번(받아 둔
-릴리스가 메모리에만 있어서)뿐이다.
+![A version tag builds a release, the workflow makes emcp fetch it, and an older board gets the offer with its weather, draws the screen, then downloads and installs](docs/diagrams/firmware-update.png)
 
-보고의 `fw_commit` 이 그 릴리스에 들어 있는 옛 커밋이고 배터리가 3.7V 이상인 보드에는
-`"ota_version": "<릴리스 커밋 SHA 40자>"` 를 날씨와 같이 준다. 보드는 `fw_board` 로 알린 보드 종류의 파일을
-`GET /firmware/<보드 종류>/<버전>` 으로 받아 설치하고 다시 켜진다. 릴리스에 없는 커밋이나 `-dirty` 빌드로 직접
-올린 보드에는 주지 않는다. 릴리스 빌드는 `fw_version` 에 태그 이름(`v1`)을 실어서 대시보드에 그대로 보이고,
-`fw_commit` 이 없는 옛 펌웨어는 `fw_version` 이 커밋이다.
+1. A `v*` tag in the firmware repo builds a GitHub release with `commits.txt` and `weather-xiao.bin`.
+2. The release workflow calls `POST /firmware/refresh`. The server downloads the latest release into memory (`emcp/infra/firmware.py`) and answers with its commit. The workflow retries up to 10 times until that commit matches the tag.
+3. A board whose `fw_commit` is an older commit of that release, with at least 3.7 V of battery, gets `"ota_version": "<40-char SHA>"` next to its weather.
+4. The board draws its screen first, then downloads `GET /firmware/<fw_board>/<sha>`, installs it and restarts. The new firmware stays on probation until a wake reaches the server; otherwise the bootloader rolls back.
 
-## 코드 구조
+Rules:
 
-폴더 하나가 층 하나다. 위 층만 아래 층을 부른다. 층마다 무엇이 있는지는 그 폴더의 `__init__.py` 에 있다.
+- GitHub is asked only at server start (up to 10 tries, since the release lives in memory) and when the workflow calls.
+- Only the latest release is served, and only for `weather-xiao`.
+- No offer for commits outside the release or for `-dirty` builds flashed by hand.
+- Release builds send the tag in `fw_version` (`v1.02`), which the dashboard shows. Old firmware without `fw_commit` sends the commit in `fw_version`.
+
+## Code layout
+
+One folder per layer. A layer calls only the layers below it, and entry modules never import each other. Each folder's `__init__.py` lists what it holds.
 
 ```
 emcp/
-  server.py     조립: 경로와 도구를 앱 하나로 묶어 실행 (python -m emcp.server)
-  entry/        1층 입구: board_api.py (보드), web.py (로그인, 대시보드), tools.py (MCP), dashboard/ (화면)
-  service/      2층 입구 여럿이 같이 쓰는 동작: actions.py, checks.py
-  state/        3층 서버 메모리: devices.py (보드 사본), buffer.py (보고 버퍼)
-  infra/        4층 바깥: db/ (Neon), auth.py (WorkOS), weather.py (open-meteo), firmware.py (GitHub)
-tests/          pytest (Docker Postgres)
+  server.py   wiring: routes and tools in one app (python -m emcp.server)
+  entry/      layer 1, entry points: board_api.py (boards), web.py (sign-in, dashboard),
+              tools.py (MCP), dashboard/ (page rendering)
+  service/    layer 2, actions shared by several entry points: actions.py, checks.py
+  state/      layer 3, server memory: devices.py (board copies), buffer.py (report buffer)
+  infra/      layer 4, outside systems: db/ (Neon, the only place with SQL), auth.py (WorkOS),
+              weather.py (open-meteo), firmware.py (GitHub Releases)
+tests/        pytest against Postgres in Docker
 ```
 
-## 로컬 실행
+## Run locally
 
-작업 디렉터리의 `.env` 에 Neon 접속 주소와 WorkOS 값을 넣어 둔다 (`.env` 는 gitignore 됨).
-`MCP_AUTH_ISSUER` 가 없으면 서버가 뜨지 않는다:
+`.env` in the working directory (gitignored). The server refuses to start without `MCP_AUTH_ISSUER`.
 
 ```text
 DATABASE_URL=postgresql://...
 WORKOS_CLIENT_ID=client_...
 WORKOS_API_KEY=sk_...
-MCP_AUTH_ISSUER=https://<authkit 도메인>
-WORKOS_COOKIE_PASSWORD=<Fernet 키>
+MCP_AUTH_ISSUER=https://<authkit domain>
+WORKOS_COOKIE_PASSWORD=<Fernet key>
 ```
 
 ```bash
 uv sync
-uv run --env-file .env python -m emcp.server   # 기본 포트 8080, PORT 환경변수로 변경 가능
+uv run --env-file .env python -m emcp.server   # port 8080, or PORT
+curl http://127.0.0.1:8080/health                                            # ok
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8080/mcp   # 401, sign-in required
 ```
 
-확인:
+A local server uses the production Neon database. A report sent to a local `POST /weather` moves to Neon within an hour and mixes with real records.
+
+## Tests
+
+Local Postgres 18 in Docker, the same major version as Neon. No production database, WorkOS or open-meteo calls; every test starts with empty tables.
 
 ```bash
-curl http://127.0.0.1:8080/health                                              # ok
-curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8080/mcp     # 401 (로그인 필요)
-```
-
-로컬도 운영과 같은 Neon 을 쓴다. 로컬에 `POST /weather` 로 보고를 보내면 한 시간 안에 Neon 으로
-옮겨져 진짜 기록에 섞인다.
-
-## 테스트
-
-테스트는 Docker 로 띄운 로컬 Postgres(운영 Neon 과 같은 18)에서 돈다. 운영 DB, WorkOS, open-meteo
-에는 닿지 않고, 테이블은 테스트마다 비운다.
-
-```bash
-sh scripts/test-db.sh   # 처음 한 번, 또는 Docker 를 다시 켠 뒤
+sh scripts/test-db.sh   # once, or after restarting Docker
 uv run pytest
 ```
 
-`TEST_DATABASE_URL` 로 다른 로컬 DB 를 쓸 수 있다. 주소가 로컬이 아니면 테스트가 시작하지 않는다.
+`TEST_DATABASE_URL` points the tests at another local database. A non-local address stops the run before any test.
 
-## Fly.io 배포
+## Deploy
 
-아직 Neon 으로 옮기지 않은 보고를 담아 둘 볼륨과 DB 접속 주소가 먼저 있어야 한다. 볼륨은
-`fly.toml` 의 `[mounts] source` 와 이름이 같아야 하고, 둘 다 한 번만 하면 된다:
+A push to `main` runs the tests (`.github/workflows/test.yml`) and, when they pass, deploys to Fly.io (`deploy.yml`). The deploy workflow can also run by hand from the Actions tab. Repository secret: `FLY_API_TOKEN` from `fly tokens create deploy -a emcp`.
+
+First setup, once per app. The volume name must match `[mounts] source` in `fly.toml`.
 
 ```bash
 fly volumes create reports --size 1 --region fra
-fly secrets import < .env                           # 값이 화면에 찍히지 않는다
-fly secrets set PUBLIC_URL=https://<app>.fly.dev    # 앱마다 다르다. 토큰의 aud 와 로그인 주소에 쓴다
+fly secrets import < .env                           # values stay off the screen
+fly secrets set PUBLIC_URL=https://<app>.fly.dev    # token audience and sign-in URLs
 fly deploy --ha=false
 ```
 
-보드들이 아직 옛 주소(`emcp-led.fly.dev`)로 보고하므로, 보드를 다시 플래싱할 때까지는 옛 앱에도
-같은 코드를 올린다: `fly deploy --ha=false -a emcp-led`. 옛 펌웨어는 토큰 없이 보고하므로 옛 앱에만
-`ACCEPT_TOKENLESS=1` 을 준다. 이 값이 빠지면 옛 보드의 보고가 전부 거절되고, 보드는 5분마다 다시 시도하면서
-배터리를 쓴다. `emcp` 에는 주지 않는다.
+- Sentry: on with `fly secrets set SENTRY_DSN=...`, off without it. Request bodies (they hold board tokens) and personal data are never sent.
+- Legacy app `emcp-led`: boards on old firmware still report to `emcp-led.fly.dev` without a token. That app runs the same code with `ACCEPT_TOKENLESS=1` and is deployed by hand (`fly deploy --ha=false -a emcp-led`). Without that flag every old report is rejected and the boards retry every 5 minutes, draining their batteries. `emcp` never gets the flag.
 
-처음 설정을 마친 뒤 `emcp` 배포는 GitHub 에서 저절로 된다. main 에 push 하면 Actions 가 테스트를 돌리고
-(`.github/workflows/test.yml`), 통과하면 바로 배포한다 (`deploy.yml`). 같은 배포를 Actions 탭의 deploy 에서
-"Run workflow" 로 다시 돌릴 수도 있다. 저장소 비밀값 `FLY_API_TOKEN` 에 `fly tokens create deploy -a emcp`
-로 만든 토큰을 넣어 둔다.
+## Report storage
 
-에러 알림은 Sentry 로 받는다. Sentry 프로젝트의 DSN 을 `fly secrets set SENTRY_DSN=...` 로 넣으면 켜지고,
-없으면 아무것도 보내지 않는다. 요청 본문(보드 토큰이 들어 있다)과 개인정보는 보내지 않는다.
+- Reports first go to the file at `REPORTS_BUFFER`, one line each. A timer inside the app moves them to Neon once an hour, and skips the database when there is nothing to move. Reason: Neon free-tier limits.
+- Opening the dashboard moves the waiting reports first, then reads from Neon.
+- Table layout: [docs/data-structure.ko.md](docs/data-structure.ko.md) (Korean). A local server buffers in `pending-reports.jsonl` (gitignored).
+- Weather locations live in Neon `devices`. The server keeps an in-memory copy per MAC so a report never waits on the database. The copy reloads at start, at every hourly move and on every location change. While `emcp` and `emcp-led` share the database, a change made in one app reaches the other at its next move, within an hour.
 
-- MCP 엔드포인트: `https://<app>.fly.dev/mcp`
-- 보드 보고: `POST https://<app>.fly.dev/weather`
-- 대시보드: `https://<app>.fly.dev/dashboard`
-
-## 보고 보관
-
-보고는 먼저 `REPORTS_BUFFER` 가 가리키는 파일에 한 줄씩 쌓이고, 앱 안의 타이머가 한 시간에 한 번 Neon
-으로 옮긴다. 옮길 보고가 없으면 DB 를 깨우지 않는다. 대시보드를 열면 남은 보고를 먼저 옮긴 뒤 Neon 에서 읽는다. 보고마다 DB 에 쓰지
-않는 건 Neon 무료 한도 때문이다. 테이블 구조는 [docs/data-structure.ko.md](docs/data-structure.ko.md)
-에 있다. 로컬 실행은 작업 디렉터리의 `pending-reports.jsonl` 을 쓴다 (gitignore 됨).
-
-볼륨에 파일로 쌓던 때의 기록(`/data/reports.jsonl`)은 한 번 옮긴다. 다시 돌려도 이미 들어간
-보고는 건너뛴다:
+One-time import of the old volume file `/data/reports.jsonl`. Rerunning skips reports already imported.
 
 ```bash
 fly ssh sftp get /data/reports.jsonl reports.jsonl -a emcp-led
 uv run --env-file .env python -m scripts.import_reports reports.jsonl
 ```
 
-`data/` 에는 볼륨을 붙이기 전, 대시보드 HTML 에서 되살린 기록이 있다:
+`data/` holds records recovered from the dashboard HTML, from before the volume existed:
 
-| 파일 | 내용 |
-|------|------|
-| `seed-reports.jsonl` | 9/11~9/16 의 604건. 볼륨의 `reports.jsonl` 앞부분에 이미 들어 있다 |
-| `reports-thru-2026-09-16.csv` | 같은 데이터를 표로 본 것 |
+| File | Content |
+|---|---|
+| `seed-reports.jsonl` | 604 reports, 9/11 to 9/16, already at the start of the volume's `reports.jsonl` |
+| `reports-thru-2026-09-16.csv` | the same data as a table |
 
-표에 실린 마지막 50건은 시각과 `wifi_ms` 까지 그대로고, 앞의 554건은 차트 polyline 에서
-역산했다 — `y()` 가 선형이고 축 경계가 옆에 찍혀 있어서 배터리와 신호는 정확하다 (겹치는
-50건이 전부 일치했다). 다만 차트 x축이 시각이 아니라 인덱스 기반이라 그 554건에는 시각이
-없어서, 아는 세 지점(양 끝과 가운데 눈금) 사이를 선형으로 채우고 `"at_estimated": true`
-를 달아 두었다. 보고 간격이 고르지 않으므로(재시도와 벤치 테스트가 섞여 있다) 그 시각은
-순서를 세우는 용도지 믿을 값이 아니다. 차트는 x를 위치로만 쓰므로 모양은 원본 그대로다.
-
-## 날씨 위치
-
-보드마다 Neon 의 `devices` 에 저장한다. 보고에 DB 를 기다리지 않고 답하려고 서버가 MAC 별 사본을
-메모리에 둔다. 사본은 서버가 뜰 때, 보고를 Neon 으로 옮길 때, 위치를 바꿀 때 다시 읽는다. 그래서
-두 앱(`emcp`, `emcp-led`)이 같은 DB 를 쓰는 동안에는 한쪽에서 바꾼 위치가 다른 쪽에는 그 앱이 다음에
-보고를 옮길 때(최대 한 시간) 들어간다.
+The last 50 come from the dashboard table, timestamps and `wifi_ms` included. The 554 before them were read back from the chart polylines: battery and signal are exact (all 50 overlapping reports matched), but the chart's x axis is an index, not time. Their timestamps are interpolated between three known points and marked `"at_estimated": true`; they give the order, not the real time.
