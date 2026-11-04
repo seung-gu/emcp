@@ -1,6 +1,7 @@
 """대시보드: 로그인 확인, 화면, 이름·위치 바꾸기, QR 로 들어오기."""
 
-import server
+import devices
+import web
 from helpers import new_code, post_form, register, sign_in
 
 MAC = "TEST00000001"
@@ -31,7 +32,7 @@ def test_page_shows_my_boards_and_waiting_codes(client, accounts):
     waiting = new_code()
     post_form(client, me, "/dashboard/claim", code=waiting)
     page = client.get("/dashboard?notice=released").text
-    for part in ("<h2>내 보드</h2>", MAC, "등록 해제", waiting, server._NOTICES["released"]):
+    for part in ("<h2>내 보드</h2>", MAC, "등록 해제", waiting, web.NOTICES["released"]):
         assert part in page
 
 
@@ -74,7 +75,7 @@ def test_location_change_reaches_the_board_copy(client, accounts):
     token, device = register(client, me, MAC)
     assert post_form(client, me, "/dashboard/location", device_id=str(device), name="베를린",
                      lat="52.52", lon="13.41") == "/dashboard?notice=located"
-    assert next(d for d in server._by_token.values() if d["id"] == device)["city"] == "베를린"
+    assert next(d for d in devices._by_token.values() if d["id"] == device)["city"] == "베를린"
 
 
 def test_location_out_of_range(client, accounts):
@@ -98,7 +99,7 @@ def test_qr_when_signed_out_keeps_code_through_sign_in(client, accounts):
     client.cookies.set("emcp_claim", "ABC234")
     sign_in(client, accounts.add("user_me"))
     page = client.get("/dashboard").text
-    assert 'value="ABC234"' in page and server._NOTICES["prefilled"] in page
+    assert 'value="ABC234"' in page and web.NOTICES["prefilled"] in page
 
 
 def test_bad_qr_code(client):

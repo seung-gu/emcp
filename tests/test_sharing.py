@@ -2,8 +2,8 @@
 
 from datetime import datetime, timezone
 
+import auth
 import db
-import server
 from helpers import post_form, register, sign_in
 
 MAC = "TEST00000001"
@@ -103,5 +103,5 @@ def test_workos_down_while_sharing(client, accounts, monkeypatch):
     def down(email):
         raise RuntimeError("WorkOS unreachable")
 
-    monkeypatch.setattr(server.auth, "user_id_for_email", down)
+    monkeypatch.setattr(auth, "user_id_for_email", down)
     assert share(client, owner, device, "friend@test.example") == "/dashboard?notice=share_error"

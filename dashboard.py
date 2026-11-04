@@ -49,7 +49,7 @@ def rssi_label(rssi: int) -> str:
     return _WEAKEST
 
 
-# 시각은 그 보고 때 날씨를 받은 위치의 현지 시각으로 보여 준다. 시간대는 server.py 가 날씨와 함께 보고에
+# 시각은 그 보고 때 날씨를 받은 위치의 현지 시각으로 보여 준다. 시간대는 board_api.py 가 날씨와 함께 보고에
 # 남긴다. 시간대가 기록되기 전 보고는 그 보드의 가장 최근 시간대를, 그것도 없으면 기본 위치(뮌헨)의 시간대를
 # 쓴다. 그때까지의 보고는 모두 뮌헨 날씨였다.
 _DEFAULT_TZ = "Europe/Berlin"
@@ -119,7 +119,7 @@ def _cell(v) -> str:
 def _board(name: str | None, mac: str | None) -> str:
     """보드 표시. 이름이 있으면 이름을 보이고 마우스를 올리면 바로 MAC 이 뜬다 (dashboard.html 의
     .board). 브라우저 기본 툴팁(title)은 1초쯤 가만히 있어야 떠서 쓰지 않는다. 이름은 사람이 정한 글자라
-    이스케이프한다. MAC 은 server.py 가 이미 걸러서 넣는다."""
+    이스케이프한다. MAC 은 checks.py 가 이미 걸러서 넣는다."""
     if not name:
         return _cell(mac)
     data_mac = f' data-mac="{mac}"' if mac else ""
@@ -347,7 +347,7 @@ def _boards_section(boards: list[dict], pending: list[dict], notice: str | None,
                     history: list[dict], shares: dict, incoming: list[dict]) -> str:
     """내 보드 목록과 이름·위치 바꾸기, 공유, 등록 해제 버튼, 보드 추가(등록 코드 입력 칸), 입력해 두고 보드를
     기다리는 코드. 예전 기록을 가져올 수 있는 보드에는 그 아래에 묻는 줄을 붙인다. 공유받은 보드는 그 아래 따로
-    보여 준다. 보드 이름과 도시는 사람이 정한 글자라 이스케이프한다. 코드는 server.py 가 정한 글자만 통과한다."""
+    보여 준다. 보드 이름과 도시는 사람이 정한 글자라 이스케이프한다. 코드는 checks.py 가 정한 글자만 통과한다."""
     offers = {h["device_id"]: h for h in history}
     own = [b for b in boards if b["role"] == "owner"]
     lines = []

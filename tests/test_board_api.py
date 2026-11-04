@@ -1,7 +1,9 @@
 """보드가 부르는 POST /weather: 등록 확인과 상태 보고."""
 
+import actions
+import board_api
 import db
-import server
+import devices
 from helpers import buffered, check_in, new_code, new_token, post_form, register, report, tool
 
 MAC = "TEST00000001"
@@ -19,7 +21,7 @@ def test_board_asks_first_then_claude_enters_code(client, accounts):
     me = accounts.add("user_me")
     token, code = new_token(), new_code()
     assert check_in(client, token, MAC, code) == (200, {"registered": False})
-    assert tool(client, me, "register_device", code=code) == server._ENTER_RESULTS["registered"]
+    assert tool(client, me, "register_device", code=code) == actions.ENTER_RESULTS["registered"]
     status, body = check_in(client, token, MAC, code)
     assert status == 200 and body["registered"] is True and body["city"] == "뮌헨"
 
@@ -89,7 +91,7 @@ def test_unknown_token(client):
 
 def test_tokenless_report_only_where_allowed(client):
     assert report(client, mac="TESTLEGACY01")[0] == 401
-    server._ACCEPT_TOKENLESS = True    # emcp-led 설정
+    board_api.ACCEPT_TOKENLESS = True    # emcp-led 설정
     status, body = report(client, mac="TESTLEGACY01")
     assert status == 200 and body["city"] == "뮌헨"
     row = buffered()[-1]
@@ -112,13 +114,13 @@ def test_invalid_code_on_dashboard(client, accounts):
 
 def test_code_entries_are_limited(client, accounts):
     me = accounts.add("user_me")
-    for _ in range(server._CODES_PER_USER):
+    for _ in range(actions.CODES_PER_USER):
         post_form(client, me, "/dashboard/claim", code=new_code())
     assert post_form(client, me, "/dashboard/claim", code=new_code()) == "/dashboard?notice=limited"
 
 
 def test_check_ins_are_limited(client):
-    for _ in range(server._CHECK_INS_PER_IP):
+    for _ in range(board_api.CHECK_INS_PER_IP):
         check_in(client, new_token(), MAC, new_code())
     assert check_in(client, new_token(), MAC, new_code())[0] == 429
 
@@ -126,6 +128,6 @@ def test_check_ins_are_limited(client):
 def test_board_registered_elsewhere_is_found_after_reload(client, accounts):
     """다른 앱에서 등록돼 사본에 없는 토큰은 DB 를 다시 읽어 찾는다."""
     token, device = register(client, accounts.add("user_me"), MAC)
-    server._by_token.clear()
+    devices._by_token.clear()
     status, _ = report(client, token, MAC)
-    assert status == 200 and server._by_token[db.hash_token(token)]["id"] == device
+    assert status == 200 and devices.find(db.hash_token(token))["id"] == device

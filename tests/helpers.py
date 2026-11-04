@@ -7,18 +7,17 @@ import time
 
 from workos.session import seal_data
 
+import buffer
+import checks
 import db
-import server
-
-CODE_CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
-
+import devices
 
 def new_token() -> str:
     return secrets.token_hex(32)
 
 
 def new_code() -> str:
-    return "".join(secrets.choice(CODE_CHARS) for _ in range(6))
+    return "".join(secrets.choice(checks.CODE_CHARS) for _ in range(6))
 
 
 def sign_in(client, user: str) -> None:
@@ -65,7 +64,7 @@ def tool(client, user: str, tool_name: str, /, **args) -> str:
 
 def buffered() -> list[dict]:
     """버퍼 파일에 쌓인 보고."""
-    with open(server._BUFFER, encoding="utf-8") as f:
+    with open(buffer.PATH, encoding="utf-8") as f:
         return [json.loads(line) for line in f]
 
 
@@ -74,4 +73,4 @@ def register(client, user: str, mac: str) -> tuple[str, int]:
     token, code = new_token(), new_code()
     check_in(client, token, mac, code)
     assert post_form(client, user, "/dashboard/claim", code=code) == "/dashboard?notice=registered"
-    return token, server._by_token[db.hash_token(token)]["id"]
+    return token, devices.find(db.hash_token(token))["id"]

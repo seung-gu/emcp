@@ -2,8 +2,9 @@
 
 import glob
 
+import actions
+import buffer
 import db
-import server
 from helpers import register, report, sign_in
 
 MAC = "TEST00000001"
@@ -13,11 +14,11 @@ def test_flush_moves_reports_into_the_database(client, accounts):
     me = accounts.add("user_me")
     token, _ = register(client, me, MAC)
     report(client, token, MAC, log=[{"kind": "wifi", "wifi_ms": 3000}])
-    server._seal_buffer()
-    server._flush_sealed()
+    buffer.seal()
+    actions.flush_reports()
     rows = db.read_reports(me)
     assert len(rows) == 1 and rows[0]["city"] == "뮌헨" and rows[0]["log"][0]["kind"] == "wifi"
-    assert glob.glob(server._BUFFER + "*") == []
+    assert glob.glob(buffer.PATH + "*") == []
 
 
 def test_same_batch_twice_is_stored_once(client, accounts):
@@ -40,17 +41,17 @@ def test_dashboard_moves_reports_before_reading(client, accounts):
 
 def test_flush_is_due_once_an_hour(client, accounts):
     token, _ = register(client, accounts.add("user_me"), MAC)
-    assert server._flush_if_due() is None              # fresh_state 가 방금 옮긴 것으로 해 둠
-    server._last_flush = float("-inf")
-    assert server._flush_if_due() is not None
+    assert actions.flush_due() is False  # fresh_state 가 방금 옮긴 것으로 해 둠
+    actions._last_flush = float("-inf")
+    assert actions.flush_due() is True
 
 
 def test_deleted_account_loses_its_boards(client, accounts):
     owner = accounts.add("user_owner")
     token, _ = register(client, owner, MAC)
-    server._flush_sealed()                              # 처음 확인: 지금부터 세기 시작
+    actions.flush_reports()  # 처음 확인: 지금부터 세기 시작
     accounts.delete(owner)
-    server._last_account_check = float("-inf")         # 30분이 지난 것으로
-    server._flush_sealed()
+    actions._last_account_check = float("-inf")  # 30분이 지난 것으로
+    actions.flush_reports()
     assert report(client, token, MAC) == (401, {"registered": False})
     assert db.list_devices(owner) == []

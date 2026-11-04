@@ -28,7 +28,7 @@ WEATHER_FIELDS = ("city", "lat", "lon", "out_temp_c", "out_humidity", "out_temp_
 # 온습도 센서 진단. 보고마다 오지만 문제를 볼 때만 쓰므로 sensor_logs 에 따로 둔다.
 SENSOR_FIELDS = {"room_err": str, "room_sda": bool, "room_scl": bool, "room_ack": str,
                  "room_stuck": bool}
-# 날씨를 못 받았던 때의 기록 한 건에 실리는 값과 그 타입. kind 는 server.py 가 따로 거른다.
+# 날씨를 못 받았던 때의 기록 한 건에 실리는 값과 그 타입. kind 는 checks.py 가 따로 거른다.
 # 온습도(chip_c, room_c, room_rh)는 4단계 펌웨어부터 실려 온다.
 LOG_FIELDS = {
     "wifi_attempts": int, "reset_reason": int, "battery_mv": int, "wifi_ms": int, "rssi": int,
@@ -216,7 +216,7 @@ def _migrate(conn: psycopg.Connection) -> None:
 
 
 def add_reports(rows: list[dict]) -> dict:
-    """보고를 한 트랜잭션으로 넣는다. rows 는 server.py 가 버퍼에 쓰는 모양이다
+    """보고를 한 트랜잭션으로 넣는다. rows 는 board_api.py 가 버퍼에 쓰는 모양이다
     (received_at, device_id 또는 mac, 측정값, 날씨, room_*, log, raw). 토큰으로 온 보고는 서버가
     보드 번호(device_id)를 적어 두고, 토큰 없는 옛 보고는 MAC 으로 보드를 찾는다.
 

@@ -47,9 +47,15 @@ import httpx  # noqa: E402
 from mcp.server.auth.provider import AccessToken  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 
+import actions  # noqa: E402
 import auth  # noqa: E402
+import board_api  # noqa: E402
+import buffer  # noqa: E402
+import checks  # noqa: E402
 import db  # noqa: E402
+import devices  # noqa: E402
 import server  # noqa: E402
+import web  # noqa: E402
 
 
 # --- open-meteo ---
@@ -154,14 +160,14 @@ def fresh_state():
         tables = [r["tablename"] for r in conn.execute(
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'schema_migrations'")]
         conn.execute(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE")
-    for path in glob.glob(server._BUFFER + "*"):
+    for path in glob.glob(buffer.PATH + "*"):
         os.remove(path)
-    server._hits.clear()
-    server._alive.clear()
-    server._last_flush = time.monotonic()        # 보고가 저절로 옮겨지지 않게. 옮기기 테스트는 직접 부른다
-    server._last_account_check = float("-inf")
-    server._ACCEPT_TOKENLESS = False
-    server._load_devices()
+    checks._hits.clear()
+    web._alive.clear()
+    actions._last_flush = time.monotonic()        # 보고가 저절로 옮겨지지 않게. 옮기기 테스트는 직접 부른다
+    actions._last_account_check = float("-inf")
+    board_api.ACCEPT_TOKENLESS = False
+    devices.load()
 
 
 @pytest.fixture(scope="session")
