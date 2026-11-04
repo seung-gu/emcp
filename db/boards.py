@@ -221,3 +221,26 @@ def forget_user(user_id: str) -> list[int]:
         conn.execute("DELETE FROM device_access WHERE user_id = %s", (user_id,))
         conn.execute("DELETE FROM claim_codes WHERE user_id = %s", (user_id,))
     return [r["id"] for r in released]
+
+
+# --- WorkOS 환경 옮기기 (Staging -> Production) ---
+# 두 환경은 계정이 따로라, 옮기면 같은 사람도 새 사용자 ID 로 다시 가입한다. scripts/move_accounts.py 가 이메일로
+# 짝을 맞춰 아래 함수로 옛 ID 의 기록을 새 ID 로 넘긴다.
+
+def account_emails() -> list[dict]:
+    """device_access 에 적힌 사용자 ID 와 이메일. 이메일은 등록하거나 공유할 때 적어 둔 것이다."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT DISTINCT user_id, email FROM device_access WHERE email IS NOT NULL ORDER BY email").fetchall()
+
+
+def move_account(old_id: str, new_id: str) -> int:
+    """old_id 의 보드 주인·공유 기록을 new_id 로 넘기고, 넘긴 줄 수를 돌려준다. new_id 가 같은 보드에 이미 줄을
+    갖고 있으면 그 줄을 남기고 옛 줄은 지운다. 입력해 두고 기다리던 등록 코드는 넘기지 않고 지운다(한 시간짜리)."""
+    with connect() as conn, conn.transaction():
+        conn.execute("DELETE FROM device_access o WHERE o.user_id = %s AND EXISTS"
+                     " (SELECT 1 FROM device_access n WHERE n.user_id = %s AND n.device_id = o.device_id)",
+                     (old_id, new_id))
+        moved = conn.execute("UPDATE device_access SET user_id = %s WHERE user_id = %s", (new_id, old_id)).rowcount
+        conn.execute("DELETE FROM claim_codes WHERE user_id = %s", (old_id,))
+    return moved
