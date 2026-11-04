@@ -4,6 +4,7 @@
   테스트마다 테이블을 비운다.
 - WorkOS: auth 의 바깥 호출을 가짜 계정 목록(Accounts)으로 바꾼다. Claude 토큰은 "user:<사용자 ID>".
 - open-meteo: httpx 요청에 정해 둔 응답을 돌려준다. 날씨와 지명 검색 코드 자체는 그대로 돈다.
+- GitHub 펌웨어 릴리스: 마찬가지로 정해 둔 릴리스 파일을 돌려준다. 처음에는 릴리스가 없다.
 - 보고 버퍼: 임시 폴더.
 """
 
@@ -54,6 +55,7 @@ import buffer  # noqa: E402
 import checks  # noqa: E402
 import db.core  # noqa: E402
 import devices  # noqa: E402
+import firmware  # noqa: E402
 import server  # noqa: E402
 import web  # noqa: E402
 
@@ -99,6 +101,41 @@ def open_meteo(monkeypatch):
             super().__init__(*args, **kwargs)
 
     monkeypatch.setattr(httpx, "AsyncClient", Client)
+    return fake
+
+
+# --- GitHub 펌웨어 릴리스 ---
+
+class Releases:
+    """GitHub 릴리스 대신 답한다. publish 로 릴리스를 올린다. down 이면 500."""
+
+    def __init__(self):
+        self.files: dict[str, bytes] = {}
+        self.down = False
+
+    def publish(self, commits: list[str], files: dict[str, bytes]) -> None:
+        self.files = {"commits.txt": "\n".join(commits).encode(), **files}
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        if self.down:
+            return httpx.Response(500)
+        name = request.url.path.removeprefix(urlparse(firmware.LATEST).path)
+        if request.url.host == "github.com" and name in self.files:
+            return httpx.Response(200, content=self.files[name])
+        return httpx.Response(404)
+
+
+@pytest.fixture(autouse=True)
+def releases(monkeypatch):
+    fake = Releases()
+    real = httpx.Client
+
+    class Client(real):
+        def __init__(self, *args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(fake.handle)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", Client)
     return fake
 
 
@@ -166,6 +203,8 @@ def fresh_state():
     web._alive.clear()
     actions._last_flush = time.monotonic()        # 보고가 저절로 옮겨지지 않게. 옮기기 테스트는 직접 부른다
     actions._last_account_check = float("-inf")
+    actions._last_firmware_check = time.monotonic()   # 펌웨어 확인도 테스트가 직접 부른다
+    firmware._release = None
     board_api.ACCEPT_TOKENLESS = False
     devices.load()
 

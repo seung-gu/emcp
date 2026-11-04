@@ -2,12 +2,12 @@
 
 들어오는 곳은 셋이다.
 1. MCP (Streamable HTTP, /mcp): tools.py. 로그인한 사람만 쓰고, 도구는 부른 사람의 보드만 다룬다.
-2. 보드용 HTTP (POST /weather): board_api.py.
+2. 보드용 HTTP (POST /weather, GET /firmware): board_api.py.
 3. 로그인과 대시보드 (/auth, /dashboard, /r): web.py.
 
 그 아래에 입구 여럿이 같이 쓰는 동작(actions.py), 입력 검사(checks.py), 보드 사본(devices.py), 보고
 버퍼(buffer.py)가 있고, 맨 아래에 DB(db/), 로그인(auth.py, WorkOS), 날씨와 지명 검색(weather.py,
-open-meteo)이 있다. 대시보드 화면은 dashboard/ 가 그린다. 위 층이 아래 층을 부르고, 반대로는 부르지 않는다.
+open-meteo), 펌웨어 릴리스(firmware.py, GitHub)가 있다. 대시보드 화면은 dashboard/ 가 그린다. 위 층이 아래 층을 부르고, 반대로는 부르지 않는다.
 
 보드 등록 설계는 docs/multi-user-rollout.ko.md 에 있다. 공식 MCP Python SDK(`mcp` 패키지)의 FastMCP 를 쓴다.
 """
@@ -45,6 +45,7 @@ for tool in (tools.register_device, tools.get_weather_location, tools.set_weathe
 ROUTES = [
     ("GET", "/health", board_api.health),
     ("POST", "/weather", board_api.weather_report),
+    ("GET", "/firmware/{board}/{version}", board_api.firmware_file),
     ("GET", "/auth/login", web.login),
     ("GET", "/auth/callback", web.callback),
     ("GET", "/", web.root),
@@ -68,6 +69,6 @@ for method, path, handler in ROUTES:
 if __name__ == "__main__":
     # 보드 사본을 미리 채운다. 따로 스레드에서 읽으니 DB 가 느려도 서버는 바로 뜬다
     threading.Thread(target=devices.load, daemon=True).start()
-    # 한 시간마다 보고를 Neon 으로 옮기는 타이머. 요청이 없어도 돈다
+    # 한 시간마다 보고를 Neon 으로 옮기고 10분마다 펌웨어 릴리스를 확인하는 타이머. 요청이 없어도 돈다
     threading.Thread(target=actions.run_jobs, daemon=True).start()
     mcp.run(transport="streamable-http")

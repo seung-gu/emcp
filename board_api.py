@@ -1,7 +1,8 @@
 """보드와 Fly 가 부르는 HTTP 경로.
 
 - POST /weather: 등록 전 보드는 토큰과 등록 코드만 보내 등록됐는지 묻는다. 등록된 보드는 깨어날 때마다 토큰을
-  실어 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를 받는다.
+  실어 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를 받는다. 펌웨어가 옛 버전이면 새 버전도 알려 준다.
+- GET /firmware/<보드 종류>/<버전>: 보드가 새 펌웨어를 받는다 (firmware.py).
 - GET /health: Fly.io 헬스체크.
 """
 
@@ -11,13 +12,14 @@ from datetime import datetime, timezone
 import sentry_sdk
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse, Response
 
 import buffer
 import checks
 import db.boards
 import db.reports
 import devices
+import firmware
 import weather
 
 # 옛 펌웨어가 DB 와 다른 이름으로 보내는 항목. 4단계 펌웨어는 새 이름으로 보내지만, 옛 펌웨어 보드가 남아
@@ -33,6 +35,7 @@ ACCEPT_TOKENLESS = os.getenv("ACCEPT_TOKENLESS") == "1"
 # 요청 횟수 제한 (1시간에). 보드 하나는 등록 전 1시간에 12번 묻는다.
 CHECK_INS_PER_IP = 30   # 등록 확인. 한 집에서 두 대를 같이 등록해도 넉넉하게
 LOOKUPS_PER_IP = 12     # 사본에 없는 토큰 때문에 DB 를 다시 읽는 횟수
+FIRMWARE_PER_IP = 6     # 펌웨어 받기. 한 집 보드 둘이 실패해서 다시 받아도 남게
 
 
 def _field(report: dict, name: str):
@@ -109,6 +112,12 @@ async def weather_report(request: Request) -> JSONResponse:
     row.update(record)
     buffer.append(row)
 
+    # 펌웨어가 옛 버전이면 새 버전을 알려 준다. 보드는 /firmware 에서 받아 설치하고 다시 켜진다.
+    if "token" in report and (new := firmware.offer(report.get("fw_board"), _field(report, "fw_version"),
+                                                    battery_mv)):
+        body = {**body, "ota_version": new}
+        print(f"ota offered: {mac} {_field(report, 'fw_version')} -> {new[:7]}", flush=True)
+
     tail = f" +{len(row['log'])} logged" if "log" in row else ""
     if (err := row.get("room_err")) and err != "ok":
         tail += f" sht:{err}(sda{int(bool(row.get('room_sda')))}"
@@ -117,6 +126,20 @@ async def weather_report(request: Request) -> JSONResponse:
 
     # Neon 으로 옮기는 건 한 시간마다 타이머가 한다 (actions.run_jobs). 보드는 DB 를 기다리지 않는다.
     return JSONResponse(body, status_code=status)
+
+
+async def firmware_file(request: Request) -> Response:
+    """보드가 새 펌웨어를 받는다. /weather 응답에서 ota_version 을 받은 보드가 부른다. 공개 저장소의 릴리스
+    파일이라 토큰 없이 주지만, 1MB 가 넘으니 IP 마다 횟수를 묶는다."""
+    ip = request.client.host if request.client else "unknown"
+    if not checks.allowed(f"firmware:{ip}", FIRMWARE_PER_IP):
+        return PlainTextResponse("too many requests", status_code=429)
+    board, version = request.path_params["board"], request.path_params["version"]
+    data = firmware.binary(board, version)
+    if data is None:
+        return PlainTextResponse("not found", status_code=404)
+    print(f"firmware sent: {board} {version[:7]} {len(data)}B", flush=True)
+    return Response(data, media_type="application/octet-stream")
 
 
 async def _check_in(report: dict, mac: str | None, ip: str) -> JSONResponse:

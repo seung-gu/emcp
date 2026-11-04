@@ -5,6 +5,7 @@
 - 보고 옮기기: 버퍼를 Neon 으로 옮기고, 그 김에 지운 계정의 보드를 해제하고, 보드 사본을 다시 읽는다. 이
   순서를 여기서 정해서 buffer.py 가 위 층을 부르지 않게 한다. 한 시간마다 옮기는 건 server.py 가 띄우는
   타이머 스레드(run_jobs)가 하고, 대시보드는 열 때마다 먼저 옮긴다.
+- 펌웨어 릴리스 확인: 같은 타이머가 10분마다 한다 (firmware.py).
 """
 
 import time
@@ -19,6 +20,7 @@ import checks
 import db.boards
 import db.core
 import devices
+import firmware
 
 # --- 등록 코드 입력 ---
 
@@ -84,6 +86,8 @@ async def rename_board(user: str, device_id: int, name: str) -> str:
 _FLUSH_SECONDS = 3600
 _last_flush = float("-inf")     # 뜬 뒤 첫 확인에서, 지난번에 못 옮기고 남은 파일부터 옮긴다
 _JOB_SECONDS = 60
+_FIRMWARE_SECONDS = 600
+_last_firmware_check = float("-inf")
 
 
 def flush_due() -> bool:
@@ -97,10 +101,14 @@ def flush_due() -> bool:
 
 
 def run_due_jobs() -> None:
-    """할 때가 된 작업을 한다. 지금은 한 시간마다 보고 옮기기 하나다. 옮길 보고가 없으면 DB 를 깨우지
-    않는다. 보드가 모두 꺼져 있을 때 Neon 이 한 시간마다 깨어나지 않게 하려는 것이다."""
+    """할 때가 된 작업을 한다. 한 시간마다 보고 옮기기, 10분마다 펌웨어 릴리스 확인. 옮길 보고가 없으면 DB 를
+    깨우지 않는다. 보드가 모두 꺼져 있을 때 Neon 이 한 시간마다 깨어나지 않게 하려는 것이다."""
+    global _last_firmware_check
     if flush_due() and buffer.has_sealed():
         flush_reports()
+    if time.monotonic() - _last_firmware_check >= _FIRMWARE_SECONDS:
+        _last_firmware_check = time.monotonic()
+        firmware.refresh()
 
 
 def run_jobs() -> None:
