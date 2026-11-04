@@ -112,11 +112,12 @@ async def weather_report(request: Request) -> JSONResponse:
     row.update(record)
     buffer.append(row)
 
-    # 펌웨어가 옛 버전이면 새 버전을 알려 준다. 보드는 /firmware 에서 받아 설치하고 다시 켜진다.
-    if "token" in report and (new := firmware.offer(report.get("fw_board"), _field(report, "fw_version"),
-                                                    battery_mv)):
+    # 펌웨어가 옛 버전이면 새 버전을 알려 준다. 보드는 /firmware 에서 받아 설치하고 다시 켜진다. 릴리스 빌드는
+    # fw_version 에 태그 이름(v1)을 싣고 커밋은 fw_commit 에 따로 싣는다. 그 전 펌웨어는 fw_version 이 커밋이다.
+    commit = report.get("fw_commit") or _field(report, "fw_version")
+    if "token" in report and (new := firmware.offer(report.get("fw_board"), commit, battery_mv)):
         body = {**body, "ota_version": new}
-        print(f"ota offered: {mac} {_field(report, 'fw_version')} -> {new[:7]}", flush=True)
+        print(f"ota offered: {mac} {commit} -> {new[:7]}", flush=True)
 
     tail = f" +{len(row['log'])} logged" if "log" in row else ""
     if (err := row.get("room_err")) and err != "ok":

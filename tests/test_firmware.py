@@ -27,6 +27,14 @@ def test_old_board_gets_the_new_version_and_downloads_it(client, accounts, relea
     assert r.status_code == 200 and r.content == XIAO and r.headers["content-length"] == str(len(XIAO))
 
 
+def test_release_builds_name_the_tag_and_send_the_commit(client, accounts, released):
+    """릴리스 빌드는 fw_version 에 태그 이름을, fw_commit 에 커밋을 싣는다. 업데이트는 커밋으로 정한다."""
+    token, _ = register(client, accounts.add("user_me"), MAC)
+    old = report(client, token, MAC, fw_board="weather-xiao", fw_version="v1", fw_commit=OLD[:7])[1]
+    new = report(client, token, MAC, fw_board="weather-xiao", fw_version="v2", fw_commit=NEW[:7])[1]
+    assert old["ota_version"] == NEW and "ota_version" not in new
+
+
 @pytest.mark.parametrize("fields", [
     {"fw_board": "weather-xiao", "fw_version": NEW[:7]},             # 이미 최신
     {"fw_board": "weather-xiao", "fw_version": OLD[:7] + "-dirty"},  # 수정 중인 빌드
