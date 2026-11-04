@@ -19,7 +19,7 @@ Server for an ESP32 e-ink weather board. Each board reports its state on every w
 ![Sentry](https://img.shields.io/badge/Sentry-362D59?logo=sentry&logoColor=white)
 ![pytest](https://img.shields.io/badge/pytest-9.2-0A9EDC?logo=pytest&logoColor=white)
 
-![Claude or ChatGPT, a browser and the ESP32 board call the emcp server on Fly.io, which uses Neon Postgres, WorkOS, open-meteo and GitHub Releases](docs/diagrams/architecture.png)
+![Claude or ChatGPT, a browser and the ESP32 board call the emcp server on Fly.io, which uses Neon Postgres, WorkOS, open-meteo, GitHub Releases and Sentry](docs/diagrams/architecture.png)
 
 Sign-in goes through WorkOS AuthKit, and every person sees only their own boards. Board registration design: [docs/multi-user-rollout.ko.md](docs/multi-user-rollout.ko.md) (Korean).
 

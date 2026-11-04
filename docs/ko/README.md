@@ -23,7 +23,7 @@ ESP32 e-ink 날씨 보드용 서버.
 ![Sentry](https://img.shields.io/badge/Sentry-362D59?logo=sentry&logoColor=white)
 ![pytest](https://img.shields.io/badge/pytest-9.2-0A9EDC?logo=pytest&logoColor=white)
 
-![Claude·ChatGPT, 브라우저, ESP32 보드가 Fly.io의 emcp 서버를 부르고, 서버는 Neon, WorkOS, open-meteo, GitHub Releases를 사용](../diagrams/architecture.png)
+![Claude·ChatGPT, 브라우저, ESP32 보드가 Fly.io의 emcp 서버를 부르고, 서버는 Neon, WorkOS, open-meteo, GitHub Releases, Sentry를 사용](../diagrams/architecture.png)
 
 - 로그인: WorkOS AuthKit 담당, 사람마다 자기 보드만 조회 가능
 - 보드 등록 설계: [multi-user-rollout.ko.md](../multi-user-rollout.ko.md)
