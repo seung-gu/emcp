@@ -36,6 +36,10 @@ def render(rows: list[dict], board_id: int | None = None, boards: list[dict] = (
     recent = rows[-50:][::-1]
 
     own = [b for b in boards if b["role"] == "owner"]
+    shares = shares or {}
+    # 받은 요청마다, 수락할 때 요청한 사람에게도 보여 줄 수 있는 내 보드: 아직 그 사람에게 공유하지 않은 것
+    share_back = {r["id"]: [b for b in own if r["owner_email"] not in {s["email"] for s in shares.get(b["id"], [])}]
+                  for r in incoming}
     now = datetime.now(timezone.utc)
     waiting = [{"code": p["code"], "minutes": max(1, int((p["expires_at"] - now).total_seconds() // 60))}
                for p in pending]
@@ -49,7 +53,8 @@ def render(rows: list[dict], board_id: int | None = None, boards: list[dict] = (
         shared=[b for b in boards if b["role"] != "owner"],
         incoming=list(incoming),
         offers={h["device_id"]: h for h in history},
-        shares=shares or {},
+        shares=shares,
+        share_back=share_back,
         latest=latest,
         up_to_date=up_to_date or {},
         prefill=prefill,

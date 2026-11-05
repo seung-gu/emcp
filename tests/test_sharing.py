@@ -83,23 +83,29 @@ def test_accepted_board_is_read_only(client, accounts):
     assert "공유 중" in client.get("/dashboard").text
 
 
-def test_accepting_shares_my_boards_back(client, accounts):
+def test_accepting_shares_the_boards_i_pick(client, accounts):
     owner, friend, device = setup_board(client, accounts)
-    _, friends_board = register(client, friend, "TEST00000002")
+    _, picked = register(client, friend, "TEST00000002")
+    _, kept = register(client, friend, "TEST00000003")
     share(client, owner, device, "friend@test.example")
-    post_form(client, friend, "/dashboard/share-answer", device_id=str(device), choice="accept")
-    register(client, friend, "TEST00000003")       # 수락한 뒤에 등록한 보드는 따로 공유해야 보인다
-    assert [(b["id"], b["role"]) for b in db.boards.list_devices(owner)] == [(device, "owner"), (friends_board, "viewer")]
     sign_in(client, friend)
-    assert "owner@test.example" in client.get("/dashboard").text and "공유 중" in client.get("/dashboard").text
+    page = client.get("/dashboard").text
+    for board in (picked, kept):                   # 처음엔 내 보드가 전부 골라져 있다
+        assert f'name="share_back" value="{board}" checked' in page
+    post_form(client, friend, "/dashboard/share-answer", device_id=str(device), choice="accept",
+              share_back=[str(picked), str(device)])   # 남의 보드 번호는 건너뛴다
+    register(client, friend, "TEST00000004")       # 수락한 뒤에 등록한 보드는 따로 공유해야 보인다
+    assert [(b["id"], b["role"]) for b in db.boards.list_devices(owner)] == [(device, "owner"), (picked, "viewer")]
+    assert "공유 중" in client.get("/dashboard").text
 
 
 @pytest.mark.parametrize("who", ["owner", "friend"])
 def test_either_side_cuts_both_ways(client, accounts, who):
     owner, friend, device = setup_board(client, accounts)
-    register(client, friend, "TEST00000002")
+    _, friends_board = register(client, friend, "TEST00000002")
     share(client, owner, device, "friend@test.example")
-    post_form(client, friend, "/dashboard/share-answer", device_id=str(device), choice="accept")
+    post_form(client, friend, "/dashboard/share-answer", device_id=str(device), choice="accept",
+              share_back=[str(friends_board)])
     if who == "owner":
         post_form(client, owner, "/dashboard/unshare", device_id=str(device), email="friend@test.example")
     else:

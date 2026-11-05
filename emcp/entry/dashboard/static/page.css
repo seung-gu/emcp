@@ -128,6 +128,7 @@
               border: 1px solid var(--control); border-radius: 6px; }
   .incoming li { padding: 2px 0; }
   .incoming form { display: inline; margin-left: 6px; }
+  .incoming label.pick { margin: 0 8px 0 4px; white-space: nowrap; }
   details.add { margin: 12px 0 0; }
   details.add summary { font-size: .85rem; }
   table.boards .dim { margin-left: 0; }

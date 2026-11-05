@@ -68,8 +68,8 @@ NOTICES = {
     "auto_on": "펌웨어 자동 업데이트를 켰습니다.",
     "auto_off": "펌웨어 자동 업데이트를 껐습니다.",
     "not_auto": "내가 주인인 보드만 자동 업데이트를 바꿀 수 있습니다.",
-    "shared": "공유를 요청했습니다. 상대가 대시보드에서 수락하면 서로의 보드가 보입니다.",
-    "share_accepted": "공유를 수락했습니다. 이제 서로의 보드가 보입니다.",
+    "shared": "공유를 요청했습니다. 상대가 대시보드에서 수락하면 이 보드가 보입니다. 상대도 수락할 때 자기 보드를 골라 보여 줄 수 있습니다.",
+    "share_accepted": "공유를 수락했습니다. 이제 이 보드가 보이고, 고른 내 보드는 상대에게 보입니다.",
     "share_declined": "공유 요청을 거절했습니다.",
     "left": "공유받던 보드를 목록에서 뺐습니다. 내 보드도 상대에게 더 이상 보이지 않습니다.",
     "not_answered": "이미 처리된 요청입니다.",
@@ -271,13 +271,15 @@ async def dashboard_share(request: Request) -> RedirectResponse:
 
 
 async def dashboard_share_answer(request: Request) -> RedirectResponse:
-    """받은 공유 요청에 수락(choice=accept) 또는 거절."""
+    """받은 공유 요청에 수락(choice=accept) 또는 거절. 수락할 때 체크한 내 보드(share_back)는 상대에게도 보인다."""
     user = await _signed_in(request)
     if not user:
         return RedirectResponse("/auth/login", status_code=303)
     form = await request.form()
     device_id, accept = checks.to_int(form.get("device_id")), form.get("choice") == "accept"
-    done = device_id is not None and await run_in_threadpool(db.sharing.answer_share, user, device_id, accept)
+    share_back = [i for v in form.getlist("share_back") if (i := checks.to_int(v)) is not None]
+    done = device_id is not None and await run_in_threadpool(db.sharing.answer_share, user, device_id, accept,
+                                                             share_back)
     notice = ("share_accepted" if accept else "share_declined") if done else "not_answered"
     return RedirectResponse(f"/dashboard?notice={notice}", status_code=303)
 

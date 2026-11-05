@@ -1,6 +1,6 @@
 """공유. 주인만 공유하고 취소한다. 공유받은 사람(viewer)은 보고를 보기만 하고 보드를 바꾸지 못한다.
-수락하면 서로 공유한다: 그때 받는 사람이 주인인 보드도 요청한 주인에게 보인다. 수락한 공유는 어느 한쪽이
-끊으면 두 사람 사이의 공유가 양쪽 다 끊긴다(_cut)."""
+수락할 때 받는 사람은 자기 보드 중 요청한 주인에게도 보여 줄 것을 고른다. 수락한 공유는 어느 한쪽이 끊으면
+두 사람 사이의 공유가 양쪽 다 끊긴다(_cut)."""
 
 from __future__ import annotations
 
@@ -49,9 +49,9 @@ def incoming_shares(user_id: str) -> list[dict]:
         ).fetchall()
 
 
-def answer_share(user_id: str, device_id: int, accept: bool) -> bool:
-    """받은 공유 요청을 수락하거나 거절한다. 수락하면 서로 공유한다: 그때 내가 주인인 보드도 요청한 주인에게
-    바로 보인다. 그 뒤에 등록한 보드는 따로 공유해야 보인다. 거절하면 요청이 사라진다."""
+def answer_share(user_id: str, device_id: int, accept: bool, share_back: list[int] = ()) -> bool:
+    """받은 공유 요청을 수락하거나 거절한다. 수락할 때 고른 내 보드(share_back)는 요청한 주인에게 바로 보인다.
+    내가 주인이 아닌 번호는 건너뛴다. 그 뒤에 등록한 보드는 따로 공유해야 보인다. 거절하면 요청이 사라진다."""
     with connect() as conn, conn.transaction():
         if not accept:
             cur = conn.execute("DELETE FROM device_access WHERE device_id = %s AND user_id = %s"
@@ -64,9 +64,9 @@ def answer_share(user_id: str, device_id: int, accept: bool) -> bool:
         if owner := _owner(conn, device_id):
             conn.execute("INSERT INTO device_access (device_id, user_id, role, accepted, email)"
                          " SELECT device_id, %s, 'viewer', true, %s FROM device_access"
-                         " WHERE user_id = %s AND role = 'owner'"
+                         " WHERE user_id = %s AND role = 'owner' AND device_id = ANY(%s)"
                          " ON CONFLICT (device_id, user_id) DO UPDATE SET accepted = true",
-                         (owner["user_id"], owner["email"], user_id))
+                         (owner["user_id"], owner["email"], user_id, list(share_back)))
     return True
 
 
