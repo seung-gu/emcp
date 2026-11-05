@@ -151,4 +151,13 @@ MIGRATIONS = [
     # 등록을 해제한 보드는 누구의 대시보드에도 남기지 않는다(db.boards.release_device). 그 전에 해제한 보드의
     # 주인 줄과 공유 줄을 지운다. 지난 보고는 남아서 같은 이메일로 다시 등록하면 예전 기록으로 가져올 수 있다.
     "DELETE FROM device_access WHERE device_id IN (SELECT id FROM devices WHERE token_hash IS NULL)",
+    # 공유는 서로 한다(db.sharing.answer_share). 그 전에 수락한 공유도, 받은 사람이 주인인 보드를 요청한 주인에게
+    # 보이게 한다.
+    "INSERT INTO device_access (device_id, user_id, role, accepted, email)"
+    " SELECT DISTINCT ON (vb.device_id, o.user_id) vb.device_id, o.user_id, 'viewer', true, o.email"
+    " FROM device_access v"
+    " JOIN device_access o ON o.device_id = v.device_id AND o.role = 'owner'"
+    " JOIN device_access vb ON vb.user_id = v.user_id AND vb.role = 'owner'"
+    " WHERE v.role = 'viewer' AND v.accepted"
+    " ON CONFLICT (device_id, user_id) DO UPDATE SET accepted = true",
 ]

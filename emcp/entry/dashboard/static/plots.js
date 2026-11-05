@@ -164,7 +164,7 @@
     tip.appendChild(line(c.raw[i] + " " + c.unit));
     tip.appendChild(line("펌웨어 " + (data.fw_version[k] || "알 수 없음 (버전을 안 보내던 때)")));
     if (data.mac) {
-      tip.appendChild(line(data.name[k] || data.mac[k] || "MAC 없음", "dim"));
+      tip.appendChild(line(data.name[k] || data.mac[k] || "이름 없는 보드", "dim"));
       if (data.name[k] && data.mac[k]) tip.appendChild(line(data.mac[k], "dim"));
     }
     if (before && before !== c) before.u.redraw(false);

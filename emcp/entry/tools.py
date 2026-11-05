@@ -36,7 +36,8 @@ async def register_device(code: str) -> str:
 
 
 async def get_weather_location() -> str:
-    """내가 볼 수 있는 보드마다 '번호 / 이름 / MAC / 날씨 위치 / 역할 / 펌웨어' 를 한 줄씩 보여준다.
+    """내가 볼 수 있는 보드마다 '번호 / 이름 / MAC / 날씨 위치 / 역할 / 펌웨어' 를 한 줄씩 보여준다. MAC 은 내가
+    주인인 보드만 보이고, 공유받은 보드는 '-' 다.
     펌웨어 칸은 보드의 버전, 최신 버전, 자동 업데이트가 켜져 있는지다. 위치, 이름, 자동 업데이트를 바꿀 때
     이 번호를 쓴다."""
     boards = await run_in_threadpool(db.boards.list_devices, _caller())
@@ -51,7 +52,7 @@ async def get_weather_location() -> str:
         role = "주인" if d["role"] == "owner" else "공유받음"
         fw = (f"{d['fw_version'] or '보고 없음'} (최신 {firmware.latest_version() or '확인 중'},"
               f" 자동 업데이트 {'켜짐' if d['auto_update'] else '꺼짐'})")
-        lines.append(f"{d['id']} / {d['name'] or '이름 없음'} / {d['mac'] or 'MAC 없음'} / {where} / {role} / {fw}")
+        lines.append(f"{d['id']} / {d['name'] or '이름 없음'} / {d['mac'] or '-'} / {where} / {role} / {fw}")
     return "\n".join(lines)
 
 
@@ -170,7 +171,7 @@ async def get_reports(device_id: int, hours: int = 24) -> str:
     unusual = [RESET_KO.get(r["reset_reason"], f"코드 {r['reset_reason']}") for r in rows
                if r["reset_reason"] is not None and r["reset_reason"] != 8]   # 8 은 타이머로 정상 기상
     lines = [
-        f"{name} ({board['mac'] or 'MAC 없음'}) / 최근 {hours}시간 보고 {len(rows)}건 / 시각은 {zone.key}",
+        f"{name}{f' ({board['mac']})' if board['mac'] else ''} / 최근 {hours}시간 보고 {len(rows)}건 / 시각은 {zone.key}",
         f"마지막 보고 {last['received_at'].astimezone(zone):%m-%d %H:%M}, 배터리 {_cell(last['battery_mv'])} mV"
         + (f" (기간 중 최저 {min(batteries)}, 최고 {max(batteries)})" if batteries else "")
         + f", 신호 {_cell(last['rssi'])} dBm, 실내 {_cell(last['room_c'])}°C {_cell(last['room_rh'])}%,"

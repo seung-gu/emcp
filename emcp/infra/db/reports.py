@@ -161,24 +161,27 @@ def recent_reports(user_id: str, device_id: int, since: datetime) -> list[dict] 
 
 
 def read_reports(user_id: str) -> list[dict]:
-    """이 사람이 볼 수 있는 보드의 보고를 받은 시각 순으로, 대시보드가 그리는 모양으로. 비어 있는 칸은
+    """이 사람이 볼 수 있는 보드의 보고를 받은 시각 순으로, 대시보드가 그리는 모양으로. 보드는 device_id 로
+    구분하고, MAC 은 내가 주인인 보드에만 붙인다(공유받은 사람에게는 이름만 보인다). 비어 있는 칸은
     키째 빠진다 — 옛 파일의 한 줄과 같은 모양이라 dashboard/ 가 둘을 구분하지 않아도 된다."""
     sensor_cols = ", ".join(f"s.{k}" for k in SENSOR_FIELDS)
     with connect() as conn:
         rows = conn.execute(
-            f"SELECT r.*, d.mac, d.name AS device_name, {sensor_cols},"
+            f"SELECT r.*, d.name AS device_name, {sensor_cols},"
+            "  CASE WHEN EXISTS (SELECT 1 FROM device_access o WHERE o.device_id = d.id AND o.user_id = %s"
+            "    AND o.role = 'owner') THEN d.mac END AS mac,"
             "  (SELECT jsonb_agg(to_jsonb(w) - 'report_id' - 'idx' ORDER BY w.idx)"
             "     FROM wake_logs w WHERE w.report_id = r.id) AS log"
             " FROM reports r JOIN devices d ON d.id = r.device_id"
             " LEFT JOIN sensor_logs s ON s.report_id = r.id"
             " WHERE r.device_id = ANY(%s)"
             " ORDER BY r.received_at, r.id",
-            (devices_for(conn, user_id),),
+            (user_id, devices_for(conn, user_id)),
         ).fetchall()
     out = []
     for r in rows:
         r["received_at"] = r["received_at"].astimezone(timezone.utc).isoformat(timespec="seconds")
         if r["log"]:
             r["log"] = [{k: v for k, v in e.items() if v is not None} for e in r["log"]]
-        out.append({k: v for k, v in r.items() if v is not None and k not in ("id", "device_id")})
+        out.append({k: v for k, v in r.items() if v is not None and k != "id"})
     return out

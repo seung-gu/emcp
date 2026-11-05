@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 
+import pytest
+
 from emcp.infra import auth, db
 from helpers import post_form, register, sign_in
 
@@ -79,6 +81,43 @@ def test_accepted_board_is_read_only(client, accounts):
         "/dashboard?notice=not_renamed"
     sign_in(client, owner)
     assert "공유 중" in client.get("/dashboard").text
+
+
+def test_accepting_shares_my_boards_back(client, accounts):
+    owner, friend, device = setup_board(client, accounts)
+    _, friends_board = register(client, friend, "TEST00000002")
+    share(client, owner, device, "friend@test.example")
+    post_form(client, friend, "/dashboard/share-answer", device_id=str(device), choice="accept")
+    register(client, friend, "TEST00000003")       # 수락한 뒤에 등록한 보드는 따로 공유해야 보인다
+    assert [(b["id"], b["role"]) for b in db.boards.list_devices(owner)] == [(device, "owner"), (friends_board, "viewer")]
+    sign_in(client, friend)
+    assert "owner@test.example" in client.get("/dashboard").text and "공유 중" in client.get("/dashboard").text
+
+
+@pytest.mark.parametrize("who", ["owner", "friend"])
+def test_either_side_cuts_both_ways(client, accounts, who):
+    owner, friend, device = setup_board(client, accounts)
+    register(client, friend, "TEST00000002")
+    share(client, owner, device, "friend@test.example")
+    post_form(client, friend, "/dashboard/share-answer", device_id=str(device), choice="accept")
+    if who == "owner":
+        post_form(client, owner, "/dashboard/unshare", device_id=str(device), email="friend@test.example")
+    else:
+        post_form(client, friend, "/dashboard/leave", device_id=str(device))
+    assert [b["role"] for b in db.boards.list_devices(owner)] == ["owner"]
+    assert [b["role"] for b in db.boards.list_devices(friend)] == ["owner"]
+
+
+def test_shared_board_shows_its_name_not_its_mac(client, accounts):
+    owner, friend, device = setup_board(client, accounts)
+    share(client, owner, device, "friend@test.example")
+    sign_in(client, friend)
+    assert "'친구 방'" in client.get("/dashboard").text and MAC not in client.get("/dashboard").text
+    post_form(client, friend, "/dashboard/share-answer", device_id=str(device), choice="accept")
+    page = client.get("/dashboard").text
+    assert "친구 방" in page and f"/dashboard?board={device}" in page and MAC not in page
+    sign_in(client, owner)
+    assert MAC in client.get("/dashboard").text
 
 
 def test_friend_leaves(client, accounts):

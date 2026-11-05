@@ -65,9 +65,9 @@ def attach_tz(rows: list[dict]) -> None:
     latest: dict = {}
     for r in reversed(rows):
         if r.get("timezone"):
-            latest.setdefault(r.get("mac"), r["timezone"])
+            latest.setdefault(r.get("device_id"), r["timezone"])
     for r in rows:
-        r["tz"] = r.get("timezone") or latest.get(r.get("mac")) or DEFAULT_TZ
+        r["tz"] = r.get("timezone") or latest.get(r.get("device_id")) or DEFAULT_TZ
 
 
 def _local(r: dict) -> datetime:
@@ -83,7 +83,7 @@ def _hhmm(r: dict) -> str:
 _PLOTTED = ("battery_mv", "rssi", "awake_ms", "chip_c", "room_c", "room_rh", "nvs_used")
 
 
-def plot_data(rows: list[dict], mac: str | None, nvs_total: int | None) -> str:
+def plot_data(rows: list[dict], board_id: int | None, nvs_total: int | None) -> str:
     """그래프에 쓸 값을 열 단위 JSON 으로 만든다. 그래프는 브라우저가 그린다. 구간을 끌어 고르고
     확대·축소하려면 화면에서 다시 그려야 하기 때문이다.
 
@@ -100,7 +100,7 @@ def plot_data(rows: list[dict], mac: str | None, nvs_total: int | None) -> str:
         # 그래프 축의 시간대. 가장 최근 보고의 위치를 따른다. 표는 줄마다 자기 시간대로 보여 준다.
         "tz": rows[-1]["tz"] if rows else DEFAULT_TZ,
     }
-    if not mac:
+    if not board_id:
         data["mac"] = [r.get("mac") for r in rows]
         data["name"] = [r.get("device_name") for r in rows]
     if nvs_total:
@@ -179,12 +179,12 @@ def attach_awake(rows: list[dict]) -> None:
     0 은 버린다. NVS 가 비어 있던 첫 부팅이 기본값으로 보낸 값이고, 옛 보고에 남아 있다.
 
     보드별로 묶은 뒤에 당긴다. 여러 대가 섞여 있으면 바로 다음 행이 다른 보드의 보고라, 그냥
-    당기면 남의 wake 시간을 붙이게 된다. mac 이 없는 옛 보고는 한 묶음으로 처리하는데, 그 구간에
-    두 대가 섞여 있었다면 그 값은 바로잡을 수 없다."""
-    by_mac: dict = {}
+    당기면 남의 wake 시간을 붙이게 된다. MAC 을 보내지 않던 옛 보고는 보드 번호 하나에 모여 있어 한 묶음으로
+    처리하는데, 그 구간에 두 대가 섞여 있었다면 그 값은 바로잡을 수 없다."""
+    by_board: dict = {}
     for r in rows:
-        by_mac.setdefault(r.get("mac"), []).append(r)
-    for group in by_mac.values():
+        by_board.setdefault(r.get("device_id"), []).append(r)
+    for group in by_board.values():
         for cur, nxt in zip(group, group[1:]):
             if nxt.get("wifi_attempts") == 1 and (v := nxt.get("prev_awake_ms")):
                 cur["awake_ms"] = v
@@ -205,12 +205,12 @@ def attach_nvs(rows: list[dict]) -> int | None:
 
 
 def device_list(rows: list[dict]) -> list[dict]:
-    """보고를 보낸 적 있는 보드 목록, MAC 순. 여러 대가 섞여 있을 때 한 대만 골라 보는 버튼이 된다."""
+    """보고를 보낸 적 있는 보드 목록, 보드 번호 순. 여러 대가 섞여 있을 때 한 대만 골라 보는 버튼이 된다."""
     seen = {}
     for r in rows:
-        if r.get("mac"):
-            seen[r["mac"]] = (r, r.get("device_name"))
-    return [{"mac": m, "name": name, "last": _hhmm(last)} for m, (last, name) in sorted(seen.items())]
+        seen[r.get("device_id")] = r
+    return [{"id": i, "name": last.get("device_name"), "mac": last.get("mac"), "last": _hhmm(last)}
+            for i, last in sorted(seen.items(), key=lambda kv: kv[0] or 0)]
 
 
 def table_rows(recent: list[dict]) -> list[dict]:
@@ -239,10 +239,10 @@ def log_blocks(recent: list[dict]) -> list[dict]:
             for r in recent if r.get("log")]
 
 
-def summary(rows: list[dict], mac: str | None) -> str:
+def summary(rows: list[dict], board_id: int | None) -> str:
     """제목 아래 한 줄: 보고 수, 펌웨어, NVS 여유, 센서 실패 이유."""
     last = rows[-1] if rows else {}
-    bits = [f"보고 {len(rows)}건" + ("" if mac else " (전체 보드)")]
+    bits = [f"보고 {len(rows)}건" + ("" if board_id else " (전체 보드)")]
     if last.get("fw_version"):
         bits.append(f"펌웨어 {last['fw_version']}")
     if (free := last.get("nvs_free")) is not None:

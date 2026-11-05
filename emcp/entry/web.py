@@ -68,10 +68,10 @@ NOTICES = {
     "auto_on": "펌웨어 자동 업데이트를 켰습니다.",
     "auto_off": "펌웨어 자동 업데이트를 껐습니다.",
     "not_auto": "내가 주인인 보드만 자동 업데이트를 바꿀 수 있습니다.",
-    "shared": "공유를 요청했습니다. 상대가 대시보드에서 수락하면 이 보드가 보입니다.",
-    "share_accepted": "공유를 수락했습니다. 이제 이 보드가 보입니다.",
+    "shared": "공유를 요청했습니다. 상대가 대시보드에서 수락하면 서로의 보드가 보입니다.",
+    "share_accepted": "공유를 수락했습니다. 이제 서로의 보드가 보입니다.",
     "share_declined": "공유 요청을 거절했습니다.",
-    "left": "공유받던 보드를 목록에서 뺐습니다.",
+    "left": "공유받던 보드를 목록에서 뺐습니다. 내 보드도 상대에게 더 이상 보이지 않습니다.",
     "not_answered": "이미 처리된 요청입니다.",
     # 공유 버튼은 내 보드에만 있어서, 이건 페이지를 띄워 둔 사이에 보드가 바뀐 경우(등록 해제, 예전 기록 합치기 등)다.
     "not_shared": "공유하지 못했습니다. 페이지를 새로고침한 뒤 다시 해 주세요.",
@@ -106,8 +106,8 @@ async def _signed_in(request: Request) -> str | None:
 async def dashboard_page(request: Request):
     """로그인한 사람이 볼 수 있는 보드의 보고를 훑어보고, 보드를 등록하거나 등록을 해제하는 페이지.
 
-    ?mac=... 을 주면 그 보드만. 안 주면 전부 섞어서 보여주고 표에 보드 열이 붙는다. 남의 MAC 을 넣으면
-    보고가 없는 빈 화면이 나온다. 그 보드가 있는지조차 알려 주지 않는다.
+    ?board=<보드 번호> 를 주면 그 보드만. 안 주면 전부 섞어서 보여주고 표에 보드 열이 붙는다. 남의 보드 번호를
+    넣으면 보고가 없는 빈 화면이 나온다. 그 보드가 있는지조차 알려 주지 않는다.
     아직 Neon 으로 옮기지 않은 보고를 먼저 옮긴 뒤 읽는다. 그래야 방금 들어온 보고까지 보인다.
     """
     user = await _signed_in(request)
@@ -126,7 +126,7 @@ async def dashboard_page(request: Request):
     notice = NOTICES.get(request.query_params.get("notice", "")) or (prefill and NOTICES["prefilled"])
     # 보드마다 최신 릴리스를 돌리는지. 서버가 아직 릴리스를 받아 두지 못했으면 None 이라 비교 줄이 빠진다.
     up_to_date = {b["id"]: firmware.runs_latest(b["fw_version"]) for b in boards}
-    response = HTMLResponse(dashboard.page.render(rows, checks.tag(request.query_params.get("mac")), boards=boards,
+    response = HTMLResponse(dashboard.page.render(rows, checks.to_int(request.query_params.get("board")), boards=boards,
                                              pending=pending, notice=notice, prefill=prefill, history=history,
                                              shares=shares, incoming=incoming, latest=firmware.latest_version(),
                                              up_to_date=up_to_date))

@@ -21,7 +21,7 @@ _STATIC = {name: Markup((_HERE / "static" / name).read_text(encoding="utf-8"))
            for name in ("page.css", "plots.js", "notice.js", "places.js", "theme.js")}
 
 
-def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pending: list[dict] = (),
+def render(rows: list[dict], board_id: int | None = None, boards: list[dict] = (), pending: list[dict] = (),
            notice: str | None = None, prefill: str | None = None, history: list[dict] = (),
            shares: dict | None = None, incoming: list[dict] = (), latest: str | None = None,
            up_to_date: dict | None = None) -> str:
@@ -30,8 +30,8 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
     reports.attach_awake(rows)
     reports.attach_tz(rows)
     device_list = reports.device_list(rows)
-    if mac:
-        rows = [r for r in rows if r.get("mac") == mac]
+    if board_id:
+        rows = [r for r in rows if r.get("device_id") == board_id]
     nvs_total = reports.attach_nvs(rows)
     recent = rows[-50:][::-1]
 
@@ -41,8 +41,8 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
                for p in pending]
     return _env.get_template("page.html").render(
         static=_STATIC,
-        mac=mac,
-        summary=reports.summary(rows, mac),
+        board_id=board_id,
+        summary=reports.summary(rows, board_id),
         devices=device_list,
         notice=notice,
         own=own,
@@ -60,5 +60,5 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
         weakest=reports.WEAKEST,
         table=reports.table_rows(recent),
         logs=reports.log_blocks(recent),
-        plot_data=Markup(reports.plot_data(rows, mac, nvs_total)),
+        plot_data=Markup(reports.plot_data(rows, board_id, nvs_total)),
     )

@@ -26,12 +26,12 @@ OWNED_BY = "id IN (SELECT device_id FROM device_access WHERE user_id = %s AND ro
 
 
 def list_devices(user_id: str) -> list[dict]:
-    """이 사람이 볼 수 있는 보드의 번호, 이름, MAC, 위치, 역할, 토큰으로 등록됐는지(registered), 주인의
+    """이 사람이 볼 수 있는 보드의 번호, 이름, MAC(내가 주인인 보드만. 공유받은 보드는 비운다), 위치, 역할, 토큰으로 등록됐는지(registered), 주인의
     이메일(owner_email, 공유받은 보드에 주인을 보여 줄 때 씀), 펌웨어 자동 업데이트(auto_update), 마지막
     보고의 펌웨어 버전(fw_version, Neon 으로 옮긴 보고까지)."""
     with connect() as conn:
         return conn.execute(
-            "SELECT d.id, d.name, d.mac, d.city, d.lat, d.lon, a.role,"
+            "SELECT d.id, d.name, CASE WHEN a.role = 'owner' THEN d.mac END AS mac, d.city, d.lat, d.lon, a.role,"
             " d.token_hash IS NOT NULL AS registered, coalesce(o.email, d.owner_email) AS owner_email,"
             " d.auto_update, (SELECT r.fw_version FROM reports r WHERE r.device_id = d.id"
             " ORDER BY r.received_at DESC LIMIT 1) AS fw_version"
