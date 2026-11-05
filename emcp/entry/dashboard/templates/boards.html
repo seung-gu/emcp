@@ -1,6 +1,6 @@
 {# 보드 관리 칸: 안내, 내 보드(이름·위치 바꾸기, 공유, 등록 해제, 예전 기록), 보드 추가, 공유받은 보드.
    이름, 도시, 이메일은 사람이 정한 글자라 템플릿이 이스케이프한다. #}
-{% from "macros.html" import board, choice_button %}
+{% from "macros.html" import board_block, choice_button %}
 
 {% macro rename_form(b) %}<details class="edit"><summary>이름 바꾸기</summary><form method="post" action="/dashboard/rename"><input type="hidden" name="device_id" value="{{ b.id }}"><input name="name" maxlength="40" required value="{{ b.name or "" }}" aria-label="보드 이름"><button type="submit">저장</button></form></details>{% endmacro %}
 
@@ -17,7 +17,7 @@
 
 {# 펌웨어: 자동 업데이트 체크(바꾸면 바로 저장), 보드의 버전과 최신 버전, 둘을 비교한 한 줄. 서버가 아직
    릴리스를 받아 두지 못했거나(current 가 None) 보드가 보고한 적이 없으면 비교 줄은 없다. #}
-{% macro firmware_cell(b, latest, current) %}<form method="post" action="/dashboard/auto-update"><input type="hidden" name="device_id" value="{{ b.id }}"><label class="auto"><input type="checkbox" name="on"{% if b.auto_update %} checked{% endif %} onchange="this.form.submit()">펌웨어 자동 업데이트</label></form><dl class="fw"><dt>기기 버전</dt><dd>{{ b.fw_version or "보고 없음" }}</dd><dt>최신 버전</dt><dd>{{ latest or "확인 중" }}</dd></dl>{% if current is not none and b.fw_version %}{% if b.auto_update %}{% if current %}<p class="fw-ok">✓ 최신 버전입니다</p>{% else %}<p class="fw-next">다음 보고 때 {{ latest }} 설치</p>{% endif %}{% elif current %}<p class="fw-off">자동 업데이트 꺼짐</p>{% else %}<p class="fw-behind">자동 업데이트 꺼짐 · 최신 버전과 다름</p>{% endif %}{% endif %}{% endmacro %}
+{% macro firmware_cell(b, latest, current) %}<form method="post" action="/dashboard/auto-update"><input type="hidden" name="device_id" value="{{ b.id }}"><label class="auto"><input type="checkbox" name="on"{% if b.auto_update %} checked{% endif %} onchange="this.form.submit()">펌웨어 자동 업데이트</label></form><dl class="fw"><dt>기기 버전</dt>{% if b.fw_version %}<dd class="v">{{ b.fw_version }}</dd>{% else %}<dd>보고 없음</dd>{% endif %}<dt>최신 버전</dt>{% if latest %}<dd class="v">{{ latest }}</dd>{% else %}<dd>확인 중</dd>{% endif %}</dl>{% if current is not none and b.fw_version %}{% if b.auto_update %}{% if current %}<p class="fw-ok">✓ 최신 버전입니다</p>{% else %}<p class="fw-next">다음 보고 때 {{ latest }} 설치</p>{% endif %}{% elif current %}<p class="fw-off">자동 업데이트 꺼짐</p>{% else %}<p class="fw-behind">자동 업데이트 꺼짐 · 최신 버전과 다름</p>{% endif %}{% endif %}{% endmacro %}
 
 {# 등록된 보드에 같은 이메일의 예전 기록이 있을 때 가져올지 묻는 줄. #}
 {% macro history_offer(h) %}<tr class="offer"><td colspan="5">이 보드의 예전 기록 {{ "{:,}".format(h.reports) }}건({{ h.first.strftime("%Y-%m-%d") }} ~ {{ h.last.strftime("%Y-%m-%d") }})이 있습니다. 가져올까요? {{ choice_button("/dashboard/history", h.device_id, "import", "가져오기") }}{{ choice_button("/dashboard/history", h.device_id, "keep", "그냥 두기") }}</td></tr>{% endmacro %}
@@ -29,7 +29,7 @@
 {% if own %}
 <table class="boards"><tr><th>보드</th><th>날씨 위치</th><th>상태</th><th>펌웨어</th><th></th></tr>
 {% for b in own %}
-<tr><td>{% if b.name or b.mac %}{{ board(b.name, b.mac) }}{% else %}MAC 없음{% endif %}{{ rename_form(b) }}</td><td>{% if b.city %}{{ b.city }}{% else %}<span class="dim">기본값</span>{% endif %}{{ location_form(b) }}</td><td>{% if b.registered %}등록됨{% else %}<span class="dim">등록 안 됨</span>{% endif %}</td><td>{{ firmware_cell(b, latest, up_to_date.get(b.id)) }}</td><td>{{ share_form(b, shares.get(b.id, [])) }}{% if b.registered %}{{ release_form(b) }}{% endif %}</td></tr>
+<tr><td>{{ board_block(b.name, b.mac) }}{{ rename_form(b) }}</td><td>{% if b.city %}{{ b.city }}{% else %}<span class="dim">기본값</span>{% endif %}{{ location_form(b) }}</td><td>{% if b.registered %}등록됨{% else %}<span class="dim">등록 안 됨</span>{% endif %}</td><td>{{ firmware_cell(b, latest, up_to_date.get(b.id)) }}</td><td>{{ share_form(b, shares.get(b.id, [])) }}{% if b.registered %}{{ release_form(b) }}{% endif %}</td></tr>
 {% if b.id in offers %}
 {{ history_offer(offers[b.id]) }}
 {% endif %}
@@ -46,6 +46,6 @@
 <ul class="incoming">{% for r in incoming %}<li>{{ r.owner_email or "알 수 없는 사람" }} 님이 '{{ r.name or r.mac or "이름 없는 보드" }}' 보드를 공유하려고 합니다. {{ choice_button("/dashboard/share-answer", r.id, "accept", "수락") }}{{ choice_button("/dashboard/share-answer", r.id, "decline", "거절") }}</li>{% endfor %}</ul>
 {% endif %}
 {% if shared %}
-<table class="boards"><tr><th>보드</th><th>날씨 위치</th><th>주인</th><th></th></tr>{% for b in shared %}<tr><td>{% if b.name or b.mac %}{{ board(b.name, b.mac) }}{% else %}MAC 없음{% endif %}{% if not b.registered %} <span class="dim">(등록 안 됨)</span>{% endif %}</td><td>{% if b.city %}{{ b.city }}{% else %}<span class="dim">기본값</span>{% endif %}</td><td>{{ b.owner_email or "알 수 없음" }}</td><td>{{ leave_form(b) }}</td></tr>{% endfor %}</table>
+<table class="boards"><tr><th>보드</th><th>날씨 위치</th><th>주인</th><th></th></tr>{% for b in shared %}<tr><td>{{ board_block(b.name, b.mac) }}{% if not b.registered %}<div class="dim">등록 안 됨</div>{% endif %}</td><td>{% if b.city %}{{ b.city }}{% else %}<span class="dim">기본값</span>{% endif %}</td><td>{{ b.owner_email or "알 수 없음" }}</td><td>{{ leave_form(b) }}</td></tr>{% endfor %}</table>
 {% endif %}
 {% endif %}

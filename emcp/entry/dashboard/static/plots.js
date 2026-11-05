@@ -83,9 +83,19 @@
   }
 
   function palette() {
+    // 색은 page.css 의 변수에서. 그래프마다 --plot-<항목> 색이 있고, 없으면 강조색. 다크 모드로 바뀌면
+    // build() 가 다시 읽는다.
     var s = getComputedStyle(document.body);
-    return { fg: s.color, bg: s.backgroundColor, axis: "rgba(128,128,128,.95)",
-             grid: "rgba(128,128,128,.16)", guide: "rgba(128,128,128,.55)" };
+    var v = function (name) { return s.getPropertyValue(name).trim(); };
+    return { fg: s.color, bg: s.backgroundColor, axis: v("--muted"), grid: v("--line"), guide: v("--control"),
+             fillAlpha: parseFloat(v("--plot-fill-alpha")) || 0.1,
+             color: function (key) { return v("--plot-" + key) || v("--accent"); } };
+  }
+
+  // "#12936b" -> "rgba(18,147,107,a)". 선 아래 면은 선과 같은 색을 옅게 칠한다.
+  function tint(hex, a) {
+    var n = parseInt(hex.slice(1), 16);
+    return "rgba(" + (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255) + "," + a + ")";
   }
 
   function drawGuides(u, guides, p) {
@@ -137,7 +147,7 @@
       ctx.save();
       ctx.beginPath();
       ctx.arc(u.valToPos(x, "x", true), u.valToPos(u.data[1][i], "y", true), 5 * r, 0, 2 * Math.PI);
-      ctx.fillStyle = p.fg; ctx.fill();
+      ctx.fillStyle = c.color; ctx.fill();
       ctx.lineWidth = 2 * r; ctx.strokeStyle = p.bg; ctx.stroke();
       ctx.restore();
     }
@@ -204,7 +214,7 @@
         empty(el, "그래프를 그리려면 보고가 2건 이상 필요합니다.");
         return;
       }
-      var c = { el: el, unit: el.dataset.unit, src: pts.src, raw: pts.raw };
+      var c = { el: el, unit: el.dataset.unit, src: pts.src, raw: pts.raw, color: p.color(key) };
       var guides = data.guides[key] || [];
       var fixed = data.fixed[key];
       var axis = { stroke: p.axis, grid: { stroke: p.grid, width: 1 }, ticks: { stroke: p.grid, width: 1 } };
@@ -214,14 +224,16 @@
         tzDate: zoned,                        // 눈금 위치도 날씨 위치의 자정·정시에 맞춘다
         scales: { x: { time: true, auto: false, min: view.min, max: view.max },
                   y: fixed ? { range: fixed } : {} },
-        series: [{}, { stroke: p.fg, width: 1.5, spanGaps: false,
-                       points: { size: 5, stroke: p.fg, fill: p.bg } }],
+        // 면은 늘 아래쪽으로 채운다. 기본값은 0 쪽이라 신호세기처럼 음수인 값은 선 위가 채워진다.
+        series: [{}, { stroke: c.color, fill: tint(c.color, p.fillAlpha), fillTo: function (u) { return u.scales.y.min; },
+                       width: 2, spanGaps: false,
+                       points: { size: 5, stroke: c.color, fill: p.bg } }],
         axes: [Object.assign({ size: 46, values: xLabels }, axis), Object.assign({ size: 56 }, axis)],
         cursor: {
           y: false,
           drag: { x: true, y: false, setScale: false },
           dataIdx: function (u, si, i) { return si === 0 ? i : nearest(u.data[1], i); },
-          points: { size: 9, width: 2, stroke: p.fg, fill: p.bg },
+          points: { size: 9, width: 2, stroke: c.color, fill: p.bg },
           bind: { dblclick: function () { return null; } }
         },
         hooks: {

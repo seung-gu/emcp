@@ -2,5 +2,8 @@
    툴팁(title)은 1초쯤 가만히 있어야 떠서 쓰지 않는다. 이름이 없으면 MAC 만. #}
 {% macro board(name, mac) %}{% if name %}<span class="board"{% if mac %} data-mac="{{ mac }}"{% endif %}>{{ name }}</span>{% elif mac %}{{ mac }}{% endif %}{% endmacro %}
 
+{# 보드 관리 표의 보드 칸: 굵은 이름 아래 MAC. 이름이 없으면 MAC 만 굵게. #}
+{% macro board_block(name, mac) %}<div class="board-name">{{ name or mac or "MAC 없음" }}</div>{% if name and mac %}<div class="board-mac">{{ mac }}</div>{% endif %}{% endmacro %}
+
 {# 보드 번호와 선택 하나를 보내는 버튼 (가져오기/그냥 두기, 수락/거절) #}
 {% macro choice_button(action, device_id, choice, label) %}<form method="post" action="{{ action }}"><input type="hidden" name="device_id" value="{{ device_id }}"><input type="hidden" name="choice" value="{{ choice }}"><button type="submit">{{ label }}</button></form>{% endmacro %}
