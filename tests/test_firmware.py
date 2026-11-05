@@ -4,7 +4,7 @@ import pytest
 
 from emcp.infra import firmware
 from emcp.service import actions
-from helpers import register, report
+from helpers import post_form, register, report
 
 MAC = "TEST00000001"
 NEW = "c" * 40                 # 릴리스 커밋
@@ -35,10 +35,35 @@ def test_release_builds_name_the_tag_and_send_the_commit(client, accounts, relea
     assert old["ota_version"] == NEW and "ota_version" not in new
 
 
+def test_the_release_name_comes_from_its_tag(released):
+    assert firmware.latest_version() == "v2"
+    assert firmware.runs_latest("v2") and firmware.runs_latest(NEW[:7])
+    assert not firmware.runs_latest(OLD[:7]) and not firmware.runs_latest(NEW[:7] + "-dirty")
+
+
+@pytest.mark.parametrize("version", [
+    OLD[:7] + "-dirty",      # 수정 중인 빌드
+    "d" * 7,                 # 릴리스에 없는 커밋 (테스트 빌드)
+    NEW[:7] + "-dirty",      # 릴리스 커밋을 고친 빌드
+])
+def test_any_other_build_gets_the_release(client, accounts, released, version):
+    token, _ = register(client, accounts.add("user_me"), MAC)
+    assert report(client, token, MAC, fw_board="weather-xiao", fw_version=version)[1]["ota_version"] == NEW
+
+
+def test_no_offer_while_auto_update_is_off(client, accounts, released):
+    """테스트 빌드를 올리기 전에 주인이 끈다. 다시 켜면 다음 보고 때 받는다."""
+    me = accounts.add("user_me")
+    token, device = register(client, me, MAC)
+    assert post_form(client, me, "/dashboard/auto-update", device_id=str(device)) == "/dashboard?notice=auto_off"
+    assert "ota_version" not in report(client, token, MAC, fw_board="weather-xiao", fw_version="d" * 7)[1]
+    assert post_form(client, me, "/dashboard/auto-update", device_id=str(device), on="on") == \
+        "/dashboard?notice=auto_on"
+    assert report(client, token, MAC, fw_board="weather-xiao", fw_version="d" * 7)[1]["ota_version"] == NEW
+
+
 @pytest.mark.parametrize("fields", [
     {"fw_board": "weather-xiao", "fw_version": NEW[:7]},             # 이미 최신
-    {"fw_board": "weather-xiao", "fw_version": OLD[:7] + "-dirty"},  # 수정 중인 빌드
-    {"fw_board": "weather-xiao", "fw_version": "d" * 7},             # 릴리스에 없는 커밋
     {"fw_board": "weather-xiao", "fw_version": OLD[:7], "battery_mv": 3600},   # 배터리 부족
     {"fw_board": "weather-supermini", "fw_version": OLD[:7]},        # 릴리스에 없는 보드 종류
     {"fw_version": OLD[:7]},                                         # 업데이트를 모르는 옛 펌웨어
@@ -71,7 +96,7 @@ def test_keeps_the_last_release_when_github_fails(released):
     released.down = True
     with pytest.raises(Exception):
         firmware.refresh()
-    assert firmware.offer("weather-xiao", OLD[:7], 4000) == NEW
+    assert firmware.offer("weather-xiao", OLD[:7], 4000, True) == NEW
 
 
 def test_fetches_once_after_start_then_only_when_told(client, releases):
@@ -105,7 +130,7 @@ def test_release_workflow_makes_the_server_fetch_now(client, releases):
     assert client.post("/firmware/refresh").json() == {"commit": None}      # 릴리스가 아직 없다
     releases.publish([NEW, OLD], {"weather-xiao.bin": XIAO})
     assert client.post("/firmware/refresh").json() == {"commit": NEW}
-    assert firmware.offer("weather-xiao", OLD[:7], 4000) == NEW
+    assert firmware.offer("weather-xiao", OLD[:7], 4000, True) == NEW
 
 
 def test_refresh_reports_a_failed_fetch(client, released):

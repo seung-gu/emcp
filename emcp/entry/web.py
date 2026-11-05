@@ -1,7 +1,7 @@
 """사람이 브라우저로 쓰는 경로: 로그인, 대시보드와 그 버튼들, 보드 QR 이 여는 주소.
 
-대시보드는 로그인한 사람이 볼 수 있는 보드의 보고를 그리고, 보드를 등록하거나 해제하고, 이름과 날씨 위치를
-바꾸고, 다른 사람과 공유한다. 버튼은 모두 POST 를 받고 ?notice= 를 단 대시보드로 돌려보낸다.
+대시보드는 로그인한 사람이 볼 수 있는 보드의 보고를 그리고, 보드를 등록하거나 해제하고, 이름과 날씨 위치와
+펌웨어 자동 업데이트를 바꾸고, 다른 사람과 공유한다. 버튼은 모두 POST 를 받고 ?notice= 를 단 대시보드로 돌려보낸다.
 """
 
 import time
@@ -12,7 +12,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from emcp.entry import dashboard
-from emcp.infra import auth, db, weather
+from emcp.infra import auth, db, firmware, weather
 from emcp.service import actions, checks
 from emcp.state import buffer, devices
 
@@ -63,6 +63,9 @@ NOTICES = {
     "not_renamed": "이름은 1~40자여야 하고, 내가 주인인 보드만 바꿀 수 있습니다.",
     "located": "날씨 위치를 바꿨습니다. 보드가 다음에 깨어날 때(30분 안) 화면에 반영됩니다.",
     "not_located": "위치를 바꾸지 못했습니다. 검색한 후보 중 하나를 골라 주세요.",
+    "auto_on": "펌웨어 자동 업데이트를 켰습니다.",
+    "auto_off": "펌웨어 자동 업데이트를 껐습니다.",
+    "not_auto": "내가 주인인 보드만 자동 업데이트를 바꿀 수 있습니다.",
     "shared": "공유를 요청했습니다. 상대가 대시보드에서 수락하면 이 보드가 보입니다.",
     "share_accepted": "공유를 수락했습니다. 이제 이 보드가 보입니다.",
     "share_declined": "공유 요청을 거절했습니다.",
@@ -119,9 +122,12 @@ async def dashboard_page(request: Request):
     # QR 로 왔으면 코드를 입력 칸에 채운다. 로그인을 거쳐 왔으면 /r 이 쿠키에 맡겨 둔 코드다.
     prefill = checks.code(request.query_params.get("code")) or checks.code(request.cookies.get("emcp_claim"))
     notice = NOTICES.get(request.query_params.get("notice", "")) or (prefill and NOTICES["prefilled"])
+    # 보드마다 최신 릴리스를 돌리는지. 서버가 아직 릴리스를 받아 두지 못했으면 None 이라 비교 줄이 빠진다.
+    up_to_date = {b["id"]: firmware.runs_latest(b["fw_version"]) for b in boards}
     response = HTMLResponse(dashboard.page.render(rows, checks.tag(request.query_params.get("mac")), boards=boards,
                                              pending=pending, notice=notice, prefill=prefill, history=history,
-                                             shares=shares, incoming=incoming))
+                                             shares=shares, incoming=incoming, latest=firmware.latest_version(),
+                                             up_to_date=up_to_date))
     if "emcp_claim" in request.cookies:
         response.delete_cookie("emcp_claim")
     return response
@@ -181,6 +187,19 @@ async def dashboard_rename(request: Request) -> RedirectResponse:
     done = (device_id is not None
             and await actions.rename_board(user, device_id, str(form.get("name") or "")) == "renamed")
     return RedirectResponse(f"/dashboard?notice={'renamed' if done else 'not_renamed'}", status_code=303)
+
+
+async def dashboard_auto_update(request: Request) -> RedirectResponse:
+    """펌웨어 자동 업데이트 체크. 체크하면 폼에 on 이 실리고, 풀면 빠진다. Claude 의 set_auto_update 와 같은
+    actions 함수를 부른다."""
+    user = await _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    device_id, on = checks.to_int(form.get("device_id")), form.get("on") is not None
+    done = device_id is not None and await actions.set_auto_update(user, device_id, on)
+    notice = ("auto_on" if on else "auto_off") if done else "not_auto"
+    return RedirectResponse(f"/dashboard?notice={notice}", status_code=303)
 
 
 async def dashboard_places(request: Request) -> JSONResponse:

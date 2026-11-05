@@ -1,4 +1,4 @@
-"""보드: 누가 볼 수 있는지, 이름과 날씨 위치, 등록(등록 코드), 등록 해제, 예전 기록, 지운 계정."""
+"""보드: 누가 볼 수 있는지, 이름과 날씨 위치, 자동 업데이트, 등록(등록 코드), 등록 해제, 예전 기록, 지운 계정."""
 
 from __future__ import annotations
 
@@ -27,11 +27,14 @@ OWNED_BY = "id IN (SELECT device_id FROM device_access WHERE user_id = %s AND ro
 
 def list_devices(user_id: str) -> list[dict]:
     """이 사람이 볼 수 있는 보드의 번호, 이름, MAC, 위치, 역할, 토큰으로 등록됐는지(registered), 주인의
-    이메일(owner_email, 공유받은 보드에 주인을 보여 줄 때 씀)."""
+    이메일(owner_email, 공유받은 보드에 주인을 보여 줄 때 씀), 펌웨어 자동 업데이트(auto_update), 마지막
+    보고의 펌웨어 버전(fw_version, Neon 으로 옮긴 보고까지)."""
     with connect() as conn:
         return conn.execute(
             "SELECT d.id, d.name, d.mac, d.city, d.lat, d.lon, a.role,"
-            " d.token_hash IS NOT NULL AS registered, coalesce(o.email, d.owner_email) AS owner_email"
+            " d.token_hash IS NOT NULL AS registered, coalesce(o.email, d.owner_email) AS owner_email,"
+            " d.auto_update, (SELECT r.fw_version FROM reports r WHERE r.device_id = d.id"
+            " ORDER BY r.received_at DESC LIMIT 1) AS fw_version"
             " FROM devices d JOIN device_access a ON a.device_id = d.id"
             " LEFT JOIN device_access o ON o.device_id = d.id AND o.role = 'owner'"
             " WHERE a.user_id = %s AND a.accepted ORDER BY d.id",
@@ -56,11 +59,19 @@ def rename_device(user_id: str, device_id: int, name: str) -> bool:
         return cur.rowcount == 1
 
 
-def read_devices() -> list[dict]:
-    """모든 보드의 번호, MAC, 토큰 해시, 날씨 위치. 서버가 메모리에 사본으로 들고 있다가 보고에 답할 때
-    쓴다. 보드가 몇 대 안 돼서 통째로 읽는다."""
+def set_auto_update(user_id: str, device_id: int, on: bool) -> bool:
+    """주인이면 보드의 펌웨어 자동 업데이트를 켜거나 끄고 True. 실패는 set_location 과 같다."""
     with connect() as conn:
-        return conn.execute("SELECT id, mac, token_hash, city, lat, lon FROM devices").fetchall()
+        cur = conn.execute(f"UPDATE devices SET auto_update = %s WHERE id = %s AND {OWNED_BY}",
+                           (on, device_id, user_id))
+        return cur.rowcount == 1
+
+
+def read_devices() -> list[dict]:
+    """모든 보드의 번호, MAC, 토큰 해시, 날씨 위치, 자동 업데이트. 서버가 메모리에 사본으로 들고 있다가
+    보고에 답할 때 쓴다. 보드가 몇 대 안 돼서 통째로 읽는다."""
+    with connect() as conn:
+        return conn.execute("SELECT id, mac, token_hash, city, lat, lon, auto_update FROM devices").fetchall()
 
 
 def hash_token(token: str) -> str:

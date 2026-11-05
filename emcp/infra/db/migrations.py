@@ -145,4 +145,7 @@ MIGRATIONS = [
     # 줄은 모두 수락한 것으로 둔다. email 은 누구인지 화면에 보여 주는 용도로만 적어 둔다(주인 줄은 등록할 때,
     # 공유받은 사람 줄은 공유할 때). 사람은 여전히 user_id 로 구분한다.
     "ALTER TABLE device_access ADD COLUMN accepted BOOLEAN NOT NULL DEFAULT true, ADD COLUMN email TEXT",
+    # 보드마다 펌웨어 자동 업데이트. 켜 두면 최신 릴리스가 아닌 빌드로 보고한 보드에 최신 릴리스를 알려 준다.
+    # 테스트 빌드를 USB 로 올릴 때는 주인이 끄고, 다시 켜면 다음 보고 때 최신 릴리스를 받는다.
+    "ALTER TABLE devices ADD COLUMN auto_update BOOLEAN NOT NULL DEFAULT true",
 ]

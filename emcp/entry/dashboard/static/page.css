@@ -88,6 +88,16 @@
   details.add { margin: 12px 0 0; }
   details.add summary { font-size: .85rem; }
   table.boards .dim { margin-left: 0; }
+  /* 펌웨어 칸: 자동 업데이트 체크, 보드와 최신 버전, 둘을 비교한 한 줄. 색은 상태를 보태고 글이 먼저 말한다. */
+  label.auto { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  dl.fw { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; margin: 4px 0 0; font-size: .8rem; }
+  dl.fw dt { opacity: .65; }
+  dl.fw dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .fw-ok, .fw-next, .fw-off, .fw-behind { margin: 4px 0 0; font-size: .8rem; }
+  .fw-ok { font-weight: 600; color: light-dark(#1a7f37, #3fb950); }
+  .fw-next { font-weight: 600; color: light-dark(#0b57d0, #6ea8fe); }
+  .fw-off { opacity: .65; }
+  .fw-behind { font-weight: 600; color: light-dark(#8a5a00, #e3b341); }
   .notice { margin: 0 0 16px; padding: 8px 12px; font-size: .875rem;
             border: 1px solid rgba(128,128,128,.45); border-radius: 6px; }
   .claim { display: flex; gap: 6px; margin: 12px 0 0; }

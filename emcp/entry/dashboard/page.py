@@ -23,7 +23,8 @@ _STATIC = {name: Markup((_HERE / "static" / name).read_text(encoding="utf-8"))
 
 def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pending: list[dict] = (),
            notice: str | None = None, prefill: str | None = None, history: list[dict] = (),
-           shares: dict | None = None, incoming: list[dict] = ()) -> str:
+           shares: dict | None = None, incoming: list[dict] = (), latest: str | None = None,
+           up_to_date: dict | None = None) -> str:
     # 보드별로 나눠야 하는 처리(attach_awake)는 전체를 대상으로 한 뒤에 거른다.
     reports.drop_bad_battery(rows)
     reports.attach_awake(rows)
@@ -49,6 +50,8 @@ def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pe
         incoming=list(incoming),
         offers={h["device_id"]: h for h in history},
         shares=shares or {},
+        latest=latest,
+        up_to_date=up_to_date or {},
         prefill=prefill,
         waiting=waiting,
         # 보드 추가 칸은 접어 둔다. 보드가 아직 없거나, QR 로 와서 코드가 채워졌거나, 기다리는 코드가 있으면 편다.

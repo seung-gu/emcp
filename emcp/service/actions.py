@@ -1,7 +1,7 @@
 """입구 여럿이 같이 쓰는 동작과, 정해진 때마다 도는 작업.
 
-- 대시보드와 Claude 가 같이 쓰는 동작: 등록 코드 입력, 위치 바꾸기, 이름 바꾸기. 결과는 키로 돌려주고, 그걸
-  안내 문구나 Claude 답으로 바꾸는 건 부른 쪽(web.py, tools.py)이 한다.
+- 대시보드와 Claude 가 같이 쓰는 동작: 등록 코드 입력, 위치 바꾸기, 이름 바꾸기, 자동 업데이트 켜고 끄기.
+  결과는 키로 돌려주고, 그걸 안내 문구나 Claude 답으로 바꾸는 건 부른 쪽(web.py, tools.py)이 한다.
 - 보고 옮기기: 버퍼를 Neon 으로 옮기고, 그 김에 지운 계정의 보드를 해제하고, 보드 사본을 다시 읽는다. 이
   순서를 여기서 정해서 buffer.py 가 위 층을 부르지 않게 한다. 한 시간마다 옮기는 건 server.py 가 띄우는
   타이머 스레드(run_jobs)가 하고, 대시보드는 열 때마다 먼저 옮긴다.
@@ -52,7 +52,7 @@ async def enter_code(user: str, raw) -> str:
     return result
 
 
-# --- 위치와 이름 바꾸기. 주인만 바꿀 수 있다 ---
+# --- 위치, 이름, 자동 업데이트 바꾸기. 주인만 바꿀 수 있다 ---
 
 async def move_board(user: str, device_id: int, name: str, lat: float, lon: float) -> str:
     """보드의 날씨 위치를 바꾼다. 'moved', 'bad_place'(좌표 범위 밖), 'bad_name'(1~40자가 아님),
@@ -75,6 +75,15 @@ async def rename_board(user: str, device_id: int, name: str) -> str:
     if not await run_in_threadpool(db.boards.rename_device, user, device_id, new):
         return "not_owner"
     return "renamed"
+
+
+async def set_auto_update(user: str, device_id: int, on: bool) -> bool:
+    """보드의 펌웨어 자동 업데이트를 켜거나 끈다. 주인이 아니거나 없는 번호면 False. 바꾸면 사본을 다시 읽어서
+    보드의 다음 보고부터 따른다."""
+    if not await run_in_threadpool(db.boards.set_auto_update, user, device_id, on):
+        return False
+    await run_in_threadpool(devices.load)
+    return True
 
 
 # --- 보고 옮기기 ---

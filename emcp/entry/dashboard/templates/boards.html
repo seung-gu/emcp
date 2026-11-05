@@ -15,22 +15,27 @@
 
 {% macro leave_form(b) %}<form method="post" action="/dashboard/leave" onsubmit="return confirm('이 보드를 목록에서 뺄까요? 다시 보려면 주인이 공유를 다시 요청해야 합니다.')"><input type="hidden" name="device_id" value="{{ b.id }}"><button type="submit">목록에서 빼기</button></form>{% endmacro %}
 
+{# 펌웨어: 자동 업데이트 체크(바꾸면 바로 저장), 보드의 버전과 최신 버전, 둘을 비교한 한 줄. 서버가 아직
+   릴리스를 받아 두지 못했거나(current 가 None) 보드가 보고한 적이 없으면 비교 줄은 없다. #}
+{% macro firmware_cell(b, latest, current) %}<form method="post" action="/dashboard/auto-update"><input type="hidden" name="device_id" value="{{ b.id }}"><label class="auto"><input type="checkbox" name="on"{% if b.auto_update %} checked{% endif %} onchange="this.form.submit()">펌웨어 자동 업데이트</label></form><dl class="fw"><dt>기기 버전</dt><dd>{{ b.fw_version or "보고 없음" }}</dd><dt>최신 버전</dt><dd>{{ latest or "확인 중" }}</dd></dl>{% if current is not none and b.fw_version %}{% if b.auto_update %}{% if current %}<p class="fw-ok">✓ 최신 버전입니다</p>{% else %}<p class="fw-next">다음 보고 때 {{ latest }} 설치</p>{% endif %}{% elif current %}<p class="fw-off">자동 업데이트 꺼짐</p>{% else %}<p class="fw-behind">자동 업데이트 꺼짐 · 최신 버전과 다름</p>{% endif %}{% endif %}{% endmacro %}
+
 {# 등록된 보드에 같은 이메일의 예전 기록이 있을 때 가져올지 묻는 줄. #}
-{% macro history_offer(h) %}<tr class="offer"><td colspan="4">이 보드의 예전 기록 {{ "{:,}".format(h.reports) }}건({{ h.first.strftime("%Y-%m-%d") }} ~ {{ h.last.strftime("%Y-%m-%d") }})이 있습니다. 가져올까요? {{ choice_button("/dashboard/history", h.device_id, "import", "가져오기") }}{{ choice_button("/dashboard/history", h.device_id, "keep", "그냥 두기") }}</td></tr>{% endmacro %}
+{% macro history_offer(h) %}<tr class="offer"><td colspan="5">이 보드의 예전 기록 {{ "{:,}".format(h.reports) }}건({{ h.first.strftime("%Y-%m-%d") }} ~ {{ h.last.strftime("%Y-%m-%d") }})이 있습니다. 가져올까요? {{ choice_button("/dashboard/history", h.device_id, "import", "가져오기") }}{{ choice_button("/dashboard/history", h.device_id, "keep", "그냥 두기") }}</td></tr>{% endmacro %}
 
 {% if notice %}
 <p class="notice">{{ notice }}</p>
 {% endif %}
 <h2>내 보드</h2>
 {% if own %}
-<table class="boards"><tr><th>보드</th><th>날씨 위치</th><th>상태</th><th></th></tr>
+<table class="boards"><tr><th>보드</th><th>날씨 위치</th><th>상태</th><th>펌웨어</th><th></th></tr>
 {% for b in own %}
-<tr><td>{% if b.name or b.mac %}{{ board(b.name, b.mac) }}{% else %}MAC 없음{% endif %}{{ rename_form(b) }}</td><td>{% if b.city %}{{ b.city }}{% else %}<span class="dim">기본값</span>{% endif %}{{ location_form(b) }}</td><td>{% if b.registered %}등록됨{% else %}<span class="dim">등록 안 됨</span>{% endif %}</td><td>{{ share_form(b, shares.get(b.id, [])) }}{% if b.registered %}{{ release_form(b) }}{% endif %}</td></tr>
+<tr><td>{% if b.name or b.mac %}{{ board(b.name, b.mac) }}{% else %}MAC 없음{% endif %}{{ rename_form(b) }}</td><td>{% if b.city %}{{ b.city }}{% else %}<span class="dim">기본값</span>{% endif %}{{ location_form(b) }}</td><td>{% if b.registered %}등록됨{% else %}<span class="dim">등록 안 됨</span>{% endif %}</td><td>{{ firmware_cell(b, latest, up_to_date.get(b.id)) }}</td><td>{{ share_form(b, shares.get(b.id, [])) }}{% if b.registered %}{{ release_form(b) }}{% endif %}</td></tr>
 {% if b.id in offers %}
 {{ history_offer(offers[b.id]) }}
 {% endif %}
 {% endfor %}
 </table>
+<p class="note">자동 업데이트를 켜 두면 보드가 최신 버전을 스스로 받아 설치합니다.</p>
 {% else %}
 <p class="empty">아직 등록한 보드가 없습니다.</p>
 {% endif %}

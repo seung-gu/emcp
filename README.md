@@ -61,6 +61,7 @@ Endpoint `https://<host>/mcp`, Streamable HTTP, sign-in required. Each tool work
 | `search_location(query, count=5)` | coordinate candidates for a place name (open-meteo geocoding) |
 | `set_weather_location(device_id, name, latitude, longitude)` | sets one board's weather location; owner only |
 | `rename_device(device_id, name)` | renames one board; owner only |
+| `set_auto_update(device_id, on)` | turns one board's firmware auto update on or off; owner only |
 | `get_reports(device_id, hours=24)` | recent reports of an own or accepted shared board: battery, Wi-Fi, room climate, unusual wakes; 1 to 168 hours |
 
 A board without a location shows Munich. Changing the location takes three calls (tool output is in Korean):
@@ -130,14 +131,15 @@ A failed weather lookup returns HTTP 500 with only `{"city": ...}`. The firmware
 
 1. A `v*` tag in the firmware repo builds a GitHub release with `commits.txt` and `weather-xiao.bin`.
 2. The release workflow calls `POST /firmware/refresh`. The server downloads the latest release into memory (`emcp/infra/firmware.py`) and answers with its commit. The workflow retries up to 10 times until that commit matches the tag.
-3. A board whose `fw_commit` is an older commit of that release, with at least 3.7 V of battery, gets `"ota_version": "<40-char SHA>"` next to its weather.
+3. A board with auto update on that is not running that release (an older release, a test build, a `-dirty` build), with at least 3.7 V of battery, gets `"ota_version": "<40-char SHA>"` next to its weather.
 4. The board draws its screen first, then downloads `GET /firmware/<fw_board>/<sha>`, installs it and restarts. The new firmware stays on probation until a wake reaches the server; otherwise the bootloader rolls back.
 
 Rules:
 
 - GitHub is asked only at server start (up to 10 tries, since the release lives in memory) and when the workflow calls.
 - Only the latest release is served, and only for `weather-xiao`.
-- No offer for commits outside the release or for `-dirty` builds flashed by hand.
+- No offer while a board's auto update is off. Its owner turns it off on the dashboard (or with `set_auto_update`) before flashing a test build by hand, and turns it back on to return to the latest release.
+- The dashboard shows each board's version next to the latest release's tag, read from the address `releases/latest` redirects to.
 - Release builds send the tag in `fw_version` (`v1.02`), which the dashboard shows. Old firmware without `fw_commit` sends the commit in `fw_version`.
 
 ## Code layout

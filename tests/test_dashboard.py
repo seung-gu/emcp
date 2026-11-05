@@ -106,3 +106,44 @@ def test_qr_when_signed_out_keeps_code_through_sign_in(client, accounts):
 
 def test_bad_qr_code(client):
     assert client.get("/r/0O1I", follow_redirects=False).headers["location"] == "/dashboard"
+
+
+def test_firmware_column_compares_the_board_with_the_latest_release(client, accounts, releases):
+    from emcp.infra import firmware
+    from helpers import report
+    releases.publish(["c" * 40, "b" * 40], {"weather-xiao.bin": b"\xe9x"}, tag="v1.04")
+    firmware.refresh()
+    me = accounts.add("user_me")
+    token, device = register(client, me, MAC)
+    sign_in(client, me)
+    assert "기기 버전" in client.get("/dashboard").text and "보고 없음" in client.get("/dashboard").text
+
+    report(client, token, MAC, fw_board="weather-xiao", fw_version="0ad6b72")
+    page = client.get("/dashboard").text
+    assert "0ad6b72" in page and "v1.04" in page and "다음 보고 때 v1.04 설치" in page
+
+    post_form(client, me, "/dashboard/auto-update", device_id=str(device))
+    page = client.get("/dashboard").text
+    assert "자동 업데이트 꺼짐 · 최신 버전과 다름" in page and web.NOTICES["auto_off"] in client.get(
+        "/dashboard?notice=auto_off").text
+
+
+
+def test_firmware_column_says_when_the_board_is_up_to_date(client, accounts, releases):
+    """보고는 초 단위로 한 줄이라, 버전이 다른 두 보고를 한 테스트에서 보내지 않는다."""
+    from emcp.infra import firmware
+    from helpers import report
+    releases.publish(["c" * 40, "b" * 40], {"weather-xiao.bin": b"\xe9x"}, tag="v1.04")
+    firmware.refresh()
+    me = accounts.add("user_me")
+    token, _ = register(client, me, MAC)
+    report(client, token, MAC, fw_board="weather-xiao", fw_version="v1.04", fw_commit="c" * 7)
+    sign_in(client, me)
+    assert "✓ 최신 버전입니다" in client.get("/dashboard").text
+
+
+def test_only_the_owner_changes_auto_update(client, accounts):
+    _, device = register(client, accounts.add("user_owner"), MAC)
+    other = accounts.add("user_other")
+    assert post_form(client, other, "/dashboard/auto-update", device_id=str(device)) == "/dashboard?notice=not_auto"
+    assert devices.find_by_mac(MAC)["auto_update"]

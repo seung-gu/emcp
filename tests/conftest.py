@@ -102,23 +102,32 @@ def open_meteo(monkeypatch):
 # --- GitHub 펌웨어 릴리스 ---
 
 class Releases:
-    """GitHub 릴리스 대신 답한다. publish 로 릴리스를 올린다. down 이면 500."""
+    """GitHub 릴리스 대신 답한다. publish 로 릴리스를 올린다. down 이면 500. GitHub 처럼 latest 주소는 그
+    태그의 주소로 넘긴다."""
 
     def __init__(self):
         self.files: dict[str, bytes] = {}
+        self.tag = None
         self.down = False
         self.requests = 0
 
-    def publish(self, commits: list[str], files: dict[str, bytes]) -> None:
+    def publish(self, commits: list[str], files: dict[str, bytes], tag: str = "v2") -> None:
         self.files = {"commits.txt": "\n".join(commits).encode(), **files}
+        self.tag = tag
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests += 1
         if self.down:
             return httpx.Response(500)
-        name = request.url.path.removeprefix(urlparse(firmware.LATEST).path)
-        if request.url.host == "github.com" and name in self.files:
-            return httpx.Response(200, content=self.files[name])
+        latest = urlparse(firmware.LATEST).path
+        tagged = latest.replace("/latest/download/", f"/download/{self.tag}/")
+        path = request.url.path
+        if request.url.host != "github.com" or not self.files:
+            return httpx.Response(404)
+        if path.startswith(latest) and path.removeprefix(latest) in self.files:
+            return httpx.Response(302, headers={"location": tagged + path.removeprefix(latest)})
+        if path.startswith(tagged) and path.removeprefix(tagged) in self.files:
+            return httpx.Response(200, content=self.files[path.removeprefix(tagged)])
         return httpx.Response(404)
 
 

@@ -67,6 +67,7 @@ ESP32 e-ink 날씨 보드용 서버.
 | `search_location(query, count=5)` | 지명으로 좌표 후보 검색 (open-meteo geocoding) |
 | `set_weather_location(device_id, name, latitude, longitude)` | 보드 하나의 날씨 위치 설정. 주인만 가능 |
 | `rename_device(device_id, name)` | 보드 이름 변경. 주인만 가능 |
+| `set_auto_update(device_id, on)` | 보드 하나의 펌웨어 자동 업데이트 켜기·끄기. 주인만 가능 |
 | `get_reports(device_id, hours=24)` | 내 보드나 수락한 공유 보드의 최근 보고: 배터리, Wi-Fi, 실내 온습도, 평소와 다른 깨어남. 1~168시간 |
 
 위치 미설정 보드는 뮌헨 날씨 표시. 위치 변경 순서는 `get_weather_location` → `search_location` → 후보 선택 → `set_weather_location`:
@@ -142,14 +143,15 @@ ESP32 e-ink 날씨 보드용 서버.
 
 1. 펌웨어 저장소에 `v*` 태그 push → `commits.txt`, `weather-xiao.bin`을 담은 GitHub 릴리스 생성
 2. 릴리스 워크플로가 `POST /firmware/refresh` 호출 → 서버가 최신 릴리스를 메모리에 받아 두고(`emcp/infra/firmware.py`) 그 커밋으로 응답. 워크플로는 커밋이 태그와 같아질 때까지 최대 10번 재시도
-3. 보고의 `fw_commit`이 그 릴리스의 옛 커밋이고 배터리 3.7V 이상인 보드: 날씨와 함께 `"ota_version": "<SHA 40자>"` 수신
+3. 자동 업데이트가 켜져 있고 그 릴리스가 아닌 빌드(예전 릴리스, 테스트 빌드, `-dirty` 빌드)를 돌리며 배터리 3.7V 이상인 보드: 날씨와 함께 `"ota_version": "<SHA 40자>"` 수신
 4. 보드는 화면을 먼저 그린 뒤 `GET /firmware/<fw_board>/<sha>`로 받아 설치 후 재시작. 새 펌웨어는 서버에 닿은 wake가 나올 때까지 시험 상태, 그 전에 리셋되면 부트로더가 이전 펌웨어로 복귀
 
 규칙:
 
 - GitHub 조회 시점: 서버 시작 때(릴리스를 메모리에만 두므로, 최대 10번)와 워크플로 호출 때뿐
 - 최신 릴리스만, `weather-xiao`용만 제공
-- 릴리스에 없는 커밋, 손으로 올린 `-dirty` 빌드에는 업데이트 제안 없음
+- 자동 업데이트가 꺼진 보드에는 업데이트 제안 없음. 테스트 빌드를 USB로 올리기 전에 주인이 대시보드(또는 `set_auto_update`)에서 끄고, 다시 켜면 최신 릴리스로 돌아감
+- 대시보드는 보드마다 기기 버전과 최신 릴리스의 태그를 나란히 표시. 태그는 `releases/latest`가 넘겨 주는 주소에서 읽음
 - 릴리스 빌드는 `fw_version`에 태그 이름(`v1.02`) 전송, 대시보드에 그대로 표시. `fw_commit`이 없는 옛 펌웨어는 `fw_version`이 커밋
 
 ## 코드 구조

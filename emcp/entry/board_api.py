@@ -1,7 +1,8 @@
 """보드와 바깥 서비스(Fly, GitHub Actions)가 부르는 HTTP 경로.
 
 - POST /weather: 등록 전 보드는 토큰과 등록 코드만 보내 등록됐는지 묻는다. 등록된 보드는 깨어날 때마다 토큰을
-  실어 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를 받는다. 펌웨어가 옛 버전이면 새 버전도 알려 준다.
+  실어 상태를 보고하고, 같은 응답으로 그 보드 위치의 날씨를 받는다. 자동 업데이트를 켠 보드가 최신 릴리스가
+  아니면 새 버전도 알려 준다.
 - GET /firmware/<보드 종류>/<버전>: 보드가 새 펌웨어를 받는다 (firmware.py).
 - POST /firmware/refresh: 펌웨어 저장소의 릴리스 워크플로가 새 릴리스를 바로 받아 가라고 알린다.
 - GET /health: Fly.io 헬스체크.
@@ -110,10 +111,12 @@ async def weather_report(request: Request) -> JSONResponse:
     row.update(record)
     buffer.append(row)
 
-    # 펌웨어가 옛 버전이면 새 버전을 알려 준다. 보드는 /firmware 에서 받아 설치하고 다시 켜진다. 릴리스 빌드는
-    # fw_version 에 태그 이름(v1)을 싣고 커밋은 fw_commit 에 따로 싣는다. 그 전 펌웨어는 fw_version 이 커밋이다.
+    # 자동 업데이트를 켠 보드가 최신 릴리스가 아니면 새 버전을 알려 준다. 보드는 /firmware 에서 받아 설치하고
+    # 다시 켜진다. 릴리스 빌드는 fw_version 에 태그 이름(v1)을 싣고 커밋은 fw_commit 에 따로 싣는다. 그 전
+    # 펌웨어는 fw_version 이 커밋이다.
     commit = report.get("fw_commit") or _field(report, "fw_version")
-    if "token" in report and (new := firmware.offer(report.get("fw_board"), commit, battery_mv)):
+    if "token" in report and (new := firmware.offer(report.get("fw_board"), commit, battery_mv,
+                                                    device["auto_update"])):
         body = {**body, "ota_version": new}
         print(f"ota offered: {mac} {commit} -> {new[:7]}", flush=True)
 

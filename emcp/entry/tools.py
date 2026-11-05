@@ -3,7 +3,7 @@
 - `register_device` 로 보드 디스플레이의 등록 코드를 입력해 보드를 등록한다.
 - `get_weather_location` 으로 내 보드와 각 보드의 날씨 위치를 본다.
 - `search_location` 으로 지명의 좌표 후보를 찾고, 고른 좌표를 `set_weather_location` 에 넘겨 보드 하나의 위치를
-  바꾼다. `rename_device` 로 보드에 이름을 붙인다.
+  바꾼다. `rename_device` 로 보드에 이름을 붙인다. `set_auto_update` 로 펌웨어 자동 업데이트를 켜고 끈다.
 - `get_reports` 로 보드 하나의 최근 보고(배터리, 신호, 실내 온습도, 깨어난 이유)를 읽는다.
 
 server.py 가 이 함수들을 도구로 등록한다. 함수 이름이 도구 이름이고 docstring 이 Claude 가 읽는 설명이다.
@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from mcp.server.auth.middleware.auth_context import get_access_token
 from starlette.concurrency import run_in_threadpool
 
-from emcp.infra import db, weather
+from emcp.infra import db, firmware, weather
 from emcp.service import actions, checks
 from emcp.state import buffer, devices
 from emcp.entry.dashboard.reports import DEFAULT_TZ, RESET_KO
@@ -36,8 +36,9 @@ async def register_device(code: str) -> str:
 
 
 async def get_weather_location() -> str:
-    """내가 볼 수 있는 보드마다 '번호 / 이름 / MAC / 날씨 위치 / 역할' 을 한 줄씩 보여준다.
-    위치나 이름을 바꿀 때 이 번호를 쓴다."""
+    """내가 볼 수 있는 보드마다 '번호 / 이름 / MAC / 날씨 위치 / 역할 / 펌웨어' 를 한 줄씩 보여준다.
+    펌웨어 칸은 보드의 버전, 최신 버전, 자동 업데이트가 켜져 있는지다. 위치, 이름, 자동 업데이트를 바꿀 때
+    이 번호를 쓴다."""
     boards = await run_in_threadpool(db.boards.list_devices, _caller())
     if not boards:
         return "연결된 보드가 없다"
@@ -48,7 +49,9 @@ async def get_weather_location() -> str:
         else:
             where = f"{devices.DEFAULT_LOCATION['name']} (기본값)"
         role = "주인" if d["role"] == "owner" else "공유받음"
-        lines.append(f"{d['id']} / {d['name'] or '이름 없음'} / {d['mac'] or 'MAC 없음'} / {where} / {role}")
+        fw = (f"{d['fw_version'] or '보고 없음'} (최신 {firmware.latest_version() or '확인 중'},"
+              f" 자동 업데이트 {'켜짐' if d['auto_update'] else '꺼짐'})")
+        lines.append(f"{d['id']} / {d['name'] or '이름 없음'} / {d['mac'] or 'MAC 없음'} / {where} / {role} / {fw}")
     return "\n".join(lines)
 
 
@@ -85,6 +88,19 @@ async def rename_device(device_id: int, name: str) -> str:
     if result == "not_owner":
         return f"{device_id}번 보드의 주인이 아니거나 그런 보드가 없다"
     return f"{device_id}번 보드 이름을 '{checks.name(name)}' 로 바꿨다"
+
+
+async def set_auto_update(device_id: int, on: bool) -> str:
+    """보드의 펌웨어 자동 업데이트를 켜거나 끈다. 켜 두면 보드가 최신 버전을 스스로 받아 설치한다. 테스트
+    펌웨어를 직접 올린 보드는 꺼 둬야 덮어쓰이지 않는다. 보드의 주인만 바꿀 수 있다.
+
+    Args:
+        device_id: 보드 번호 (`get_weather_location` 이 보여주는 첫 칸).
+        on: 켜려면 true, 끄려면 false.
+    """
+    if not await actions.set_auto_update(_caller(), device_id, on):
+        return f"{device_id}번 보드의 주인이 아니거나 그런 보드가 없다"
+    return f"{device_id}번 보드의 펌웨어 자동 업데이트를 {'켰다' if on else '껐다'}"
 
 
 async def search_location(query: str, count: int = 5) -> str:
