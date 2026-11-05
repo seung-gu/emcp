@@ -148,4 +148,7 @@ MIGRATIONS = [
     # 보드마다 펌웨어 자동 업데이트. 켜 두면 최신 릴리스가 아닌 빌드로 보고한 보드에 최신 릴리스를 알려 준다.
     # 테스트 빌드를 USB 로 올릴 때는 주인이 끄고, 다시 켜면 다음 보고 때 최신 릴리스를 받는다.
     "ALTER TABLE devices ADD COLUMN auto_update BOOLEAN NOT NULL DEFAULT true",
+    # 등록을 해제한 보드는 누구의 대시보드에도 남기지 않는다(db.boards.release_device). 그 전에 해제한 보드의
+    # 주인 줄과 공유 줄을 지운다. 지난 보고는 남아서 같은 이메일로 다시 등록하면 예전 기록으로 가져올 수 있다.
+    "DELETE FROM device_access WHERE device_id IN (SELECT id FROM devices WHERE token_hash IS NULL)",
 ]

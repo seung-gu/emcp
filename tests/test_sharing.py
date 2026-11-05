@@ -53,6 +53,17 @@ def test_decline_removes_the_request(client, accounts):
     assert "friend@test.example" not in client.get("/dashboard").text
 
 
+def test_released_board_leaves_every_dashboard(client, accounts):
+    owner, friend, device = setup_board(client, accounts)
+    share(client, owner, device, "friend@test.example")
+    post_form(client, friend, "/dashboard/share-answer", device_id=str(device), choice="accept")
+    assert post_form(client, owner, "/dashboard/release", device_id=str(device)) == "/dashboard?notice=released"
+    assert db.boards.list_devices(owner) == [] and db.boards.list_devices(friend) == []
+    _, again = register(client, owner, MAC)       # 같은 계정이 다시 등록하면 새 행에서 예전 기록을 묻는다
+    assert again != device
+    assert [h["device_id"] for h in db.boards.previous_history(owner)] == [again]
+
+
 def test_accepted_board_is_read_only(client, accounts):
     owner, friend, device = setup_board(client, accounts)
     share(client, owner, device, "friend@test.example")

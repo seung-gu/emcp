@@ -122,8 +122,9 @@ def _claim_row(conn: psycopg.Connection, code: str) -> dict:
 def _link(conn: psycopg.Connection, code: str, user_id: str, email: str | None, token_hash: str,
           mac: str) -> tuple[str, int | None]:
     """코드 줄의 두 쪽이 다 찼으니 보드를 계정에 연결하고 줄을 지운다. 같은 계정이 같은 MAC 의 보드를 다시
-    등록하면 새 행을 만들지 않고 그 행의 토큰만 바꿔서 기록을 잇는다. 등록된 적 있는 보드라도 다른 계정이면
-    새 행으로 시작한다. 예전 기록은 주인 이메일이 같을 때만 가져올 수 있다(previous_history)."""
+    등록하면 새 행을 만들지 않고 그 행의 토큰만 바꿔서 기록을 잇는다. 등록된 적 있는 보드라도 다른 계정이거나,
+    등록을 해제해서 주인 줄이 없으면 새 행으로 시작한다. 예전 기록은 주인 이메일이 같을 때만 가져올 수 있다
+    (previous_history)."""
     row = conn.execute(
         "SELECT d.id FROM devices d JOIN device_access a ON a.device_id = d.id"
         " WHERE d.mac = %s AND a.user_id = %s AND a.role = 'owner'",
@@ -144,7 +145,8 @@ def _link(conn: psycopg.Connection, code: str, user_id: str, email: str | None, 
     return "registered", device_id
 
 
-# 예전 기록: 같은 MAC 이고 주인 이메일이 같은, 이 보드가 아닌 행. 계정을 지웠다 다시 만든 사람의 보드다.
+# 예전 기록: 같은 MAC 이고 주인 이메일이 같은, 이 보드가 아닌 행. 등록을 해제했다 다시 등록했거나 계정을
+# 지웠다 다시 만든 사람의 보드다.
 # 이메일이 다르면(보드를 넘겨받은 사람) 전 주인의 기록이라 보여 주지도 묻지도 않는다.
 _PREVIOUS = ("SELECT o.id FROM devices o WHERE o.mac = d.mac AND o.id <> d.id"
              " AND o.owner_email IS NOT NULL AND o.owner_email = d.owner_email")
@@ -211,24 +213,29 @@ def pending_codes(user_id: str) -> list[dict]:
 
 
 def release_device(user_id: str, device_id: int) -> bool:
-    """주인이면 보드의 토큰을 지운다. 보드는 다음 보고에서 거절당하면 토큰을 지우고 새 코드를 띄운다. 지난
-    기록과 주인 정보는 그대로라 전 주인은 계속 볼 수 있다."""
-    with connect() as conn:
+    """주인이면 보드의 토큰을 지우고 주인 줄과 공유 줄도 지워서, 누구의 대시보드에도 남지 않게 한다. 보드는
+    다음 보고에서 거절당하면 토큰을 지우고 새 코드를 띄운다. 지난 보고는 남아서, 같은 이메일로 다시 등록하면
+    예전 기록으로 가져올 수 있다(previous_history)."""
+    with connect() as conn, conn.transaction():
         cur = conn.execute(f"UPDATE devices SET token_hash = NULL WHERE id = %s AND token_hash IS NOT NULL"
                            f" AND {OWNED_BY}", (device_id, user_id))
-        return cur.rowcount == 1
+        if cur.rowcount != 1:
+            return False
+        conn.execute("DELETE FROM device_access WHERE device_id = %s", (device_id,))
+    return True
 
 
 def forget_user(user_id: str) -> list[int]:
     """지워진 계정을 보드에서 떼어 낸다. 그 사람이 주인인 보드는 토큰을 지워 등록을 해제하고(보드는 다음
-    보고에서 거절당하면 새 코드를 띄운다), 그 사람의 공유와 입력해 둔 코드도 지운다. 지난 보고는 남긴다.
-    해제한 보드 번호를 돌려준다. 두 번 불러도 결과가 같다."""
+    보고에서 거절당하면 새 코드를 띄운다), 그 사람의 공유와 입력해 둔 코드, 해제한 보드를 공유받은 사람의 줄도
+    지운다. 지난 보고는 남긴다. 해제한 보드 번호를 돌려준다. 두 번 불러도 결과가 같다."""
     with connect() as conn, conn.transaction():
         released = conn.execute(
             "UPDATE devices SET token_hash = NULL WHERE token_hash IS NOT NULL AND id IN"
             " (SELECT device_id FROM device_access WHERE user_id = %s AND role = 'owner') RETURNING id",
             (user_id,),
         ).fetchall()
-        conn.execute("DELETE FROM device_access WHERE user_id = %s", (user_id,))
+        conn.execute("DELETE FROM device_access WHERE user_id = %s OR device_id = ANY(%s)",
+                     (user_id, [r["id"] for r in released]))
         conn.execute("DELETE FROM claim_codes WHERE user_id = %s", (user_id,))
     return [r["id"] for r in released]

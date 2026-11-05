@@ -64,8 +64,7 @@ def test_release_then_report_is_refused(client, accounts):
 def test_same_account_registers_again_on_same_row(client, accounts):
     me = accounts.add("user_me")
     _, device = register(client, me, MAC)
-    post_form(client, me, "/dashboard/release", device_id=str(device))
-    _, again = register(client, me, MAC)
+    _, again = register(client, me, MAC)          # 저장 공간이 지워져 새 토큰과 코드로 다시 등록
     assert again == device
 
 

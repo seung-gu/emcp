@@ -53,7 +53,7 @@ async def root(request: Request) -> RedirectResponse:
 # 대시보드 위쪽에 띄우는 안내. 주소의 ?notice= 는 이 키만 받으므로 다른 글자가 페이지에 들어가지 않는다.
 NOTICES = {
     **actions.ENTER_RESULTS,
-    "released": "등록을 해제했습니다. 보드는 다음 보고 때 새 코드를 띄웁니다. 지난 기록은 계속 볼 수 있습니다.",
+    "released": "등록을 해제했습니다. 보드는 다음 보고 때 새 코드를 띄웁니다. 같은 이메일로 다시 등록하면 지난 기록을 가져올 수 있습니다.",
     "not_released": "내가 주인인 등록된 보드만 등록을 해제할 수 있습니다.",
     "prefilled": "보드 디스플레이의 코드를 채워 두었습니다. '보드 등록'을 누르세요.",
     "imported": "예전 기록을 이 보드로 가져왔습니다.",
