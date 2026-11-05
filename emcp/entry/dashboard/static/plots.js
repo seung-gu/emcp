@@ -292,7 +292,7 @@
     charts.forEach(function (c) { c.u.setSize({ width: c.el.clientWidth, height: HEIGHT }); });
   });
   if (window.matchMedia) {
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", build);
+    window.addEventListener("themechange", build);          // 다크 모드 스위치를 바꿨을 때 (theme.js)
   }
   build();
 })();

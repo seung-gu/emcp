@@ -1,8 +1,9 @@
-  /* 색은 여기 변수로만 정한다. 밝은 화면이 기본이고, 기기가 다크 모드면 아래 묶음이 같은 자리를 어두운 색으로
-     바꾼다. 보조 글자는 투명도 대신 정해 둔 색이라 어느 배경에서도 대비가 같다. 회색은 남색 쪽으로 살짝
-     기울였고, 강조색(남보라)은 체크, 고른 버튼, 포커스에 쓴다. 상태 색 중 "설치 예정" 은 강조색과
-     같고, 최신(초록)과 다름(주황)은 강조색과 다른 색이다. 그래프(plots.js)도 이 값을 읽는다. */
-  :root { color-scheme: light dark;
+  /* 색은 여기 변수로만 정한다. 밝은 화면이 기본이고, 다크 모드 스위치를 켜면(theme.js 가 html 에
+     data-theme="dark" 를 단다) 아래 묶음이 같은 자리를 어두운 색으로 바꾼다. 기기의 다크 모드 설정은 따르지
+     않는다. 보조 글자는 투명도 대신 정해 둔 색이라 어느 배경에서도 대비가 같다. 회색은 남색 쪽으로 살짝 기울였고,
+     강조색(남보라)은 체크, 고른 버튼, 포커스에 쓴다. 상태 색 중 "설치 예정" 은 강조색과 같고, 최신(초록)과
+     다름(주황)은 강조색과 다른 색이다. 그래프(plots.js)도 이 값을 읽는다. */
+  :root { color-scheme: light;
           --bg: #ffffff; --text: #1f2533; --muted: #5b6474; --line: #e2e6ee; --control: #c4cad6;
           --accent: #4f46e5; --accent-fill: rgba(79,70,229,.10);
           --ok: #1a7f37; --next: var(--accent); --warn: #8a5a00; --shadow: rgba(31,37,51,.14);
@@ -12,17 +13,34 @@
              확인했다. 선 아래 면은 같은 색을 --plot-fill-alpha 만큼 옅게. */
           --plot-battery_mv: #12936b; --plot-rssi: #2a78d6; --plot-awake_ms: #c03f8a; --plot-room_c: #e0611f;
           --plot-room_rh: #0b8fb3; --plot-chip_c: #d64545; --plot-nvs_used: #6a5acd; --plot-fill-alpha: .10; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #14161b; --text: #e6e8ee; --muted: #a0a7b4; --line: #2c313b; --control: #4a5262;
-            --accent: #7c83f2; --accent-fill: rgba(124,131,242,.16);
-            --ok: #3fb950; --warn: #e3b341; --shadow: rgba(0,0,0,.5);
-            --plot-battery_mv: #1f9e72; --plot-rssi: #3a82dc; --plot-awake_ms: #d0559a; --plot-room_c: #e06a35;
-            --plot-room_rh: #2496bd; --plot-chip_c: #e05a5a; --plot-nvs_used: #8577e6; --plot-fill-alpha: .16; }
-  }
+  :root[data-theme="dark"] { color-scheme: dark;
+          --bg: #14161b; --text: #e6e8ee; --muted: #a0a7b4; --line: #2c313b; --control: #4a5262;
+          --accent: #7c83f2; --accent-fill: rgba(124,131,242,.16);
+          --ok: #3fb950; --warn: #e3b341; --shadow: rgba(0,0,0,.5);
+          --plot-battery_mv: #1f9e72; --plot-rssi: #3a82dc; --plot-awake_ms: #d0559a; --plot-room_c: #e06a35;
+          --plot-room_rh: #2496bd; --plot-chip_c: #e05a5a; --plot-nvs_used: #8577e6; --plot-fill-alpha: .16; }
   [hidden] { display: none !important; }
   body { font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
          background: var(--bg); color: var(--text); margin: 0 auto; padding: 24px; max-width: 1060px; }
-  h1 { font-size: 1.25rem; margin: 0 0 4px; }
+  h1 { font-size: 1.25rem; margin: 0; }
+  /* 제목 줄: 제목 왼쪽, 화면 모드 오른쪽. 좁으면 아래로 내려간다. */
+  .head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+          gap: 8px 16px; margin: 0 0 4px; }
+  /* 스위치(다크 모드, 펌웨어 자동 업데이트). 체크박스를 밀어서 켜는 모양으로 그리고, 꺼져 있으면 글자를
+     흐리게, 켜면 보통 글자색으로 쓴다. */
+  .switch { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; font-size: .85rem;
+            color: var(--muted); cursor: pointer; }
+  .switch:has(input:checked) { color: var(--text); }
+  .switch input[type="checkbox"] { appearance: none; -webkit-appearance: none; position: relative; width: 36px;
+            height: 20px; margin: 0; border-radius: 999px; background: var(--control); cursor: pointer;
+            transition: background .15s; }
+  .switch input[type="checkbox"]::before { content: ""; position: absolute; top: 2px; left: 2px; width: 16px;
+            height: 16px; border-radius: 50%; background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,.3);
+            transition: transform .15s; }
+  .switch input[type="checkbox"]:checked { background: var(--accent); }
+  .switch input[type="checkbox"]:checked::before { transform: translateX(16px); }
+  @media (prefers-reduced-motion: reduce) {
+    .switch input[type="checkbox"], .switch input[type="checkbox"]::before { transition: none; } }
   h2 { font-size: .95rem; font-weight: 600; margin: 28px 0 8px; }
   .sub { color: var(--muted); margin: 0 0 24px; font-size: .875rem; }
   .note { font-size: .8rem; color: var(--muted); margin: 8px 0 0; max-width: 65ch; }
@@ -113,8 +131,7 @@
   details.add { margin: 12px 0 0; }
   details.add summary { font-size: .85rem; }
   table.boards .dim { margin-left: 0; }
-  /* 펌웨어 칸: 자동 업데이트 체크, 보드와 최신 버전, 둘을 비교한 한 줄. 색은 상태를 보태고 글이 먼저 말한다. */
-  label.auto { display: inline-flex; align-items: center; gap: 8px; min-height: 24px; cursor: pointer; font-size: .9rem; }
+  /* 펌웨어 칸: 자동 업데이트 스위치, 보드와 최신 버전, 둘을 비교한 한 줄. 색은 상태를 보태고 글이 먼저 말한다. */
   dl.fw { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 6px 0 0; font-size: .85rem; }
   dl.fw dt { color: var(--muted); }
   dl.fw dd { margin: 0; }

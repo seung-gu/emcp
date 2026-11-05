@@ -147,3 +147,8 @@ def test_only_the_owner_changes_auto_update(client, accounts):
     other = accounts.add("user_other")
     assert post_form(client, other, "/dashboard/auto-update", device_id=str(device)) == "/dashboard?notice=not_auto"
     assert devices.find_by_mac(MAC)["auto_update"]
+
+
+def test_page_has_a_dark_mode_switch(client, accounts):
+    sign_in(client, accounts.add("user_me"))
+    assert 'id="dark-mode"' in client.get("/dashboard").text

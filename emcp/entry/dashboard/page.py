@@ -18,7 +18,7 @@ _env = Environment(loader=FileSystemLoader(_HERE / "templates"), autoescape=True
 # 빈 값은 빈칸으로. 템플릿에 None 을 넣으면 'None' 이 찍힌다.
 _env.filters["cell"] = lambda v: "" if v is None else v
 _STATIC = {name: Markup((_HERE / "static" / name).read_text(encoding="utf-8"))
-           for name in ("page.css", "plots.js", "notice.js", "places.js")}
+           for name in ("page.css", "plots.js", "notice.js", "places.js", "theme.js")}
 
 
 def render(rows: list[dict], mac: str | None = None, boards: list[dict] = (), pending: list[dict] = (),
