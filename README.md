@@ -127,18 +127,18 @@ A failed weather lookup returns HTTP 500 with only `{"city": ...}`. The firmware
 
 ## Firmware updates
 
-![A version tag builds a release, the workflow makes emcp fetch it, and an older board gets the offer with its weather, draws the screen, then downloads and installs](docs/diagrams/firmware-update.png)
+![A version tag builds a release, the workflow makes emcp fetch it, and a board with auto update on that runs another build gets the offer with its weather, draws the screen, then downloads and installs](docs/diagrams/firmware-update.png)
 
-1. A `v*` tag in the firmware repo builds a GitHub release with `commits.txt` and `weather-xiao.bin`.
-2. The release workflow calls `POST /firmware/refresh`. The server downloads the latest release into memory (`emcp/infra/firmware.py`) and answers with its commit. The workflow retries up to 10 times until that commit matches the tag.
-3. A board with auto update on that is not running that release (an older release, a test build, a `-dirty` build), with at least 3.7 V of battery, gets `"ota_version": "<40-char SHA>"` next to its weather.
+1. A `v*` tag in the firmware repo builds a GitHub release with `commits.txt` and `weather-xiao.bin`. Only a tag makes a release: commits pushed without one change nothing on the server.
+2. The release workflow calls `POST /firmware/refresh`. The server downloads the latest release into memory (`emcp/infra/firmware.py`), keeping its commit (the first line of `commits.txt`) and its tag, and answers with the commit. The workflow retries up to 10 times until that commit matches the tag.
+3. On every report the server compares the commit the board sends (`fw_commit`) with the release's commit; a board that sends the release's tag in `fw_version` matches too. A board that does not match (an older release, a test build, a `-dirty` build), with auto update on and at least 3.7 V of battery, gets `"ota_version": "<40-char SHA>"` next to its weather.
 4. The board draws its screen first, then downloads `GET /firmware/<fw_board>/<sha>`, installs it and restarts. The new firmware stays on probation until a wake reaches the server; otherwise the bootloader rolls back.
 
 Rules:
 
 - GitHub is asked only at server start (up to 10 tries, since the release lives in memory) and when the workflow calls.
 - Only the latest release is served, and only for `weather-xiao`.
-- No offer while a board's auto update is off. Its owner turns it off on the dashboard (or with `set_auto_update`) before flashing a test build by hand, and turns it back on to return to the latest release.
+- Each board has its own auto update switch (`devices.auto_update`), on by default. No offer while it is off. Its owner turns it off on the dashboard (or with `set_auto_update`) before flashing a test build by hand, and turns it back on to return to the latest release without USB.
 - The dashboard shows each board's version next to the latest release's tag, read from the address `releases/latest` redirects to.
 - Release builds send the tag in `fw_version` (`v1.02`), which the dashboard shows. Old firmware without `fw_commit` sends the commit in `fw_version`.
 
