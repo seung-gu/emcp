@@ -212,6 +212,14 @@ def pending_codes(user_id: str) -> list[dict]:
         ).fetchall()
 
 
+def cancel_code(user_id: str, code: str) -> bool:
+    """이 사람이 입력해 둔 코드를 지운다. 남아 있는 줄은 아직 보드가 물어오지 않은 코드라(둘 다 차면 그 자리에서
+    등록되고 지워진다) 지우면 대기가 끝난다. 다른 사람이 입력한 코드는 지우지 않는다."""
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM claim_codes WHERE code = %s AND user_id = %s", (code, user_id))
+        return cur.rowcount == 1
+
+
 def release_device(user_id: str, device_id: int) -> bool:
     """주인이면 보드의 토큰을 지우고 주인 줄과 공유 줄도 지워서, 누구의 대시보드에도 남지 않게 한다. 보드는
     다음 보고에서 거절당하면 토큰을 지우고 새 코드를 띄운다. 지난 보고는 남아서, 같은 이메일로 다시 등록하면

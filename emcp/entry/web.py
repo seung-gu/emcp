@@ -56,6 +56,8 @@ NOTICES = {
     "released": "등록을 해제했습니다. 보드는 다음 보고 때 새 코드를 띄웁니다. 같은 이메일로 다시 등록하면 지난 기록을 가져올 수 있습니다.",
     "not_released": "내가 주인인 등록된 보드만 등록을 해제할 수 있습니다.",
     "prefilled": "보드 디스플레이의 코드를 채워 두었습니다. '보드 등록'을 누르세요.",
+    "code_cancelled": "코드를 취소했습니다.",
+    "not_cancelled": "취소할 코드가 없습니다. 이미 등록됐거나 시간이 지났을 수 있습니다.",
     "imported": "예전 기록을 이 보드로 가져왔습니다.",
     "kept": "예전 기록은 가져오지 않고 그대로 두었습니다. 다시 묻지 않습니다.",
     "not_imported": "가져올 예전 기록이 없거나 내가 주인인 보드가 아닙니다.",
@@ -142,6 +144,17 @@ async def dashboard_claim(request: Request) -> RedirectResponse:
     form = await request.form()
     result = await actions.enter_code(user, form.get("code"))
     return RedirectResponse(f"/dashboard?notice={result}", status_code=303)
+
+
+async def dashboard_cancel_code(request: Request) -> RedirectResponse:
+    """보드를 기다리는 중인 코드를 취소한다. 내가 입력한 코드만 지운다."""
+    user = await _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login", status_code=303)
+    form = await request.form()
+    code = checks.code(form.get("code"))
+    done = code is not None and await run_in_threadpool(db.boards.cancel_code, user, code)
+    return RedirectResponse(f"/dashboard?notice={'code_cancelled' if done else 'not_cancelled'}", status_code=303)
 
 
 async def dashboard_release(request: Request) -> RedirectResponse:

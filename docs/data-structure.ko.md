@@ -168,6 +168,7 @@ Claude는 테이블을 직접 건드리지 못하고 서버에 정해 둔 도구
 | `devices` | 이름 바꾸기, 날씨 위치 바꾸기 | 주인 | 대시보드, Claude |
 | `devices` | 등록 해제, 예전 기록 가져오기나 그냥 두기 | 주인 | 대시보드 |
 | `claim_codes` | 등록 코드 입력 | 로그인한 사람 | 대시보드, Claude |
+| `claim_codes` | 내가 입력한 코드 취소 | 로그인한 사람 | 대시보드 |
 | `device_access` | 공유 요청, 공유 취소 | 주인 | 대시보드 |
 | `device_access` | 수락, 거절, 목록에서 빼기 | 공유받은 사람 | 대시보드 |
 | `reports`, `sensor_logs`, `wake_logs` | 읽기만 | 주인, 수락한 사람 | 대시보드. Claude 도구는 6단계 |

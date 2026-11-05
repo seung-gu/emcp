@@ -39,7 +39,7 @@
 {% else %}
 <p class="empty">아직 등록한 보드가 없습니다.</p>
 {% endif %}
-<details class="add"{% if add_open %} open{% endif %}><summary>보드 추가</summary><form class="claim" method="post" action="/dashboard/claim"><input name="code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="4J7K2P" aria-label="등록 코드" value="{{ prefill or "" }}"><button type="submit">보드 등록</button></form><p class="note">보드 디스플레이의 QR을 찍거나 6자리 코드를 넣은 뒤, 보드의 RESET 버튼을 한 번 누르세요.</p>{% if waiting %}<ul class="waiting">{% for p in waiting %}<li><b>{{ p.code }}</b> 보드를 기다리는 중<span class="dim">{{ p.minutes }}분 남음</span></li>{% endfor %}</ul>{% endif %}</details>
+<details class="add"{% if add_open %} open{% endif %}><summary>보드 추가</summary><form class="claim" method="post" action="/dashboard/claim"><input name="code" maxlength="10" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="4J7K2P" aria-label="등록 코드" value="{{ prefill or "" }}"><button type="submit">보드 등록</button></form><p class="note">보드 디스플레이의 QR을 찍거나 6자리 코드를 넣은 뒤, 보드의 RESET 버튼을 한 번 누르세요.</p>{% if waiting %}<ul class="waiting">{% for p in waiting %}<li><b>{{ p.code }}</b> 보드를 기다리는 중<span class="dim">{{ p.minutes }}분 남음</span><form method="post" action="/dashboard/cancel-code"><input type="hidden" name="code" value="{{ p.code }}"><button type="submit">취소</button></form></li>{% endfor %}</ul>{% endif %}</details>
 {% if shared or incoming %}
 <h2>공유받은 보드</h2>
 {% if incoming %}

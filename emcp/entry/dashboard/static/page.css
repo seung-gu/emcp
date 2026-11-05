@@ -147,8 +147,9 @@
   .claim input { font: inherit; font-size: .9rem; width: 9em; padding: 3px 10px; color: inherit;
                  background: none; border: 1px solid var(--control); border-radius: 6px;
                  letter-spacing: .08em; text-transform: uppercase; }
-  .boards button, .claim button, .incoming button { font: inherit; font-size: .8rem; color: inherit; background: none;
+  .boards button, .claim button, .incoming button, .waiting button { font: inherit; font-size: .8rem; color: inherit; background: none;
                                   padding: 3px 10px; border: 1px solid var(--control);
                                   border-radius: 999px; cursor: pointer; }
-  .boards button:hover, .claim button:hover, .incoming button:hover { border-color: var(--accent); color: var(--accent); }
+  .boards button:hover, .claim button:hover, .incoming button:hover, .waiting button:hover { border-color: var(--accent); color: var(--accent); }
   .waiting { margin: 8px 0 0; padding-left: 22px; font-size: .85rem; }
+  .waiting form { display: inline; margin-left: 8px; }

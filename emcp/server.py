@@ -49,6 +49,7 @@ ROUTES = [
     ("GET", "/", web.root),
     ("GET", "/dashboard", web.dashboard_page),
     ("POST", "/dashboard/claim", web.dashboard_claim),
+    ("POST", "/dashboard/cancel-code", web.dashboard_cancel_code),
     ("POST", "/dashboard/release", web.dashboard_release),
     ("POST", "/dashboard/history", web.dashboard_history),
     ("POST", "/dashboard/rename", web.dashboard_rename),

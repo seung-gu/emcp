@@ -38,6 +38,16 @@ def test_page_shows_my_boards_and_waiting_codes(client, accounts):
         assert part in page
 
 
+def test_cancel_a_waiting_code(client, accounts):
+    me, other = accounts.add("user_me"), accounts.add("user_other")
+    waiting = new_code()
+    post_form(client, me, "/dashboard/claim", code=waiting)
+    assert 'action="/dashboard/cancel-code"' in client.get("/dashboard").text
+    assert post_form(client, other, "/dashboard/cancel-code", code=waiting) == "/dashboard?notice=not_cancelled"
+    assert post_form(client, me, "/dashboard/cancel-code", code=waiting.lower()) == "/dashboard?notice=code_cancelled"
+    assert waiting not in client.get("/dashboard").text
+
+
 def test_unknown_notice_is_ignored(client, accounts):
     sign_in(client, accounts.add("user_me"))
     assert "<script>alert" not in client.get("/dashboard?notice=<script>alert(1)</script>").text
