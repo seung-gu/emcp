@@ -1,5 +1,8 @@
 app = "emcp"
 primary_region = "fra"
+# 배포나 재시작으로 머신을 멈출 때 보내는 신호. Fly 기본값 SIGINT 는 uvicorn 이 정리를 마친 뒤
+# KeyboardInterrupt 로 터져 Sentry 에 이슈로 남는다. SIGTERM 은 같은 정리를 하고 예외 없이 끝난다.
+kill_signal = "SIGTERM"
 
 [build]
 
