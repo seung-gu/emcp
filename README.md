@@ -130,9 +130,10 @@ A failed weather lookup returns HTTP 500 with only `{"city": ...}`. The firmware
 ![A version tag builds a release, the workflow makes emcp fetch it, and a board with auto update on that runs another build gets the offer with its weather, draws the screen, then downloads and installs](docs/diagrams/firmware-update.png)
 
 1. A `v*` tag in the firmware repo builds a GitHub release with `commits.txt` and `weather-xiao.bin`. Only a tag makes a release: commits pushed without one change nothing on the server.
-2. The release workflow calls `POST /firmware/refresh`. The server downloads the latest release into memory (`emcp/infra/firmware.py`), keeping its commit (the first line of `commits.txt`) and its tag, and answers with the commit. The workflow retries up to 10 times until that commit matches the tag.
+2. The release workflow calls `POST /firmware/refresh`. The server downloads the latest release into memory (`emcp/infra/firmware.py`), keeping its commit (the first line of `commits.txt`) and its tag, and answers with the commit. The firmware comes from that tag's address, not from `releases/latest`, and is kept only if it carries the release commit: right after a release, `latest` can still point one file at the release before. The workflow retries up to 10 times until that commit matches the tag.
 3. On every report the server compares the commit the board sends (`fw_commit`) with the release's commit; a board that sends the release's tag in `fw_version` matches too. A board that does not match (an older release, a test build, a `-dirty` build), with auto update on and at least 3.7 V of battery, gets `"ota_version": "<40-char SHA>"` next to its weather.
 4. The board draws its screen first, then downloads `GET /firmware/<fw_board>/<sha>`, installs it and restarts. The new firmware stays on probation until a wake reaches the server; otherwise the bootloader rolls back.
+5. An install that does not take is tried again on the board's next scheduled wake, three times per version. Then the board reports `"ota_failed": true`, and the server turns its auto update off and records the version (`devices.update_failed`). The dashboard says why it is off; turning it back on clears the record, and the board starts over on its next wake.
 
 Rules:
 

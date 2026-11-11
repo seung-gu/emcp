@@ -2,9 +2,10 @@
 
 import pytest
 
+from emcp.entry import board_api
 from emcp.infra import firmware
 from emcp.service import actions
-from helpers import post_form, register, report
+from helpers import post_form, register, report, sign_in
 
 MAC = "TEST00000001"
 NEW = "c" * 40                 # 릴리스 커밋
@@ -157,3 +158,32 @@ def test_firmware_without_the_release_commit_is_not_kept(releases):
     with pytest.raises(ValueError):
         firmware.refresh()
     assert firmware.current() is None
+
+
+GAVE_UP = {"fw_board": "weather-xiao", "fw_commit": OLD[:7], "ota_tried": NEW, "ota_tries": 3, "ota_failed": True}
+
+
+def test_board_that_gives_up_an_update_turns_auto_update_off(client, accounts, released, monkeypatch):
+    alerts = []
+    monkeypatch.setattr(board_api.sentry_sdk, "capture_message", lambda message, **_: alerts.append(message))
+    me = accounts.add("user_me")
+    token, device = register(client, me, MAC)
+    assert "ota_version" not in report(client, token, MAC, **GAVE_UP)[1]   # 이 답에 권유가 없어야 보드가 기록을 지운다
+    assert len(alerts) == 1
+    sign_in(client, me)
+    assert "v2 설치에 실패해서 자동 업데이트를 껐습니다" in client.get("/dashboard").text
+    # 주인이 다시 켜면 실패 기록이 지워지고 다음 보고부터 다시 권한다
+    post_form(client, me, "/dashboard/auto-update", device_id=str(device), on="on")
+    assert "설치에 실패해서" not in client.get("/dashboard").text
+    assert report(client, token, MAC, fw_board="weather-xiao", fw_commit=OLD[:7])[1]["ota_version"] == NEW
+
+
+def test_giving_up_while_auto_update_is_off_changes_nothing(client, accounts, released, monkeypatch):
+    alerts = []
+    monkeypatch.setattr(board_api.sentry_sdk, "capture_message", lambda message, **_: alerts.append(message))
+    me = accounts.add("user_me")
+    token, device = register(client, me, MAC)
+    post_form(client, me, "/dashboard/auto-update", device_id=str(device))     # 주인이 직접 끔
+    report(client, token, MAC, **GAVE_UP)
+    sign_in(client, me)
+    assert alerts == [] and "설치에 실패해서" not in client.get("/dashboard").text

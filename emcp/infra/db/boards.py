@@ -27,13 +27,13 @@ OWNED_BY = "id IN (SELECT device_id FROM device_access WHERE user_id = %s AND ro
 
 def list_devices(user_id: str) -> list[dict]:
     """이 사람이 볼 수 있는 보드의 번호, 이름, MAC(내가 주인인 보드만. 공유받은 보드는 비운다), 위치, 역할, 토큰으로 등록됐는지(registered), 주인의
-    이메일(owner_email, 공유받은 보드에 주인을 보여 줄 때 씀), 펌웨어 자동 업데이트(auto_update), 마지막
-    보고의 펌웨어 버전(fw_version, Neon 으로 옮긴 보고까지)."""
+    이메일(owner_email, 공유받은 보드에 주인을 보여 줄 때 씀), 펌웨어 자동 업데이트(auto_update), 설치에 실패해
+    서버가 자동 업데이트를 끈 버전(update_failed), 마지막 보고의 펌웨어 버전(fw_version, Neon 으로 옮긴 보고까지)."""
     with connect() as conn:
         return conn.execute(
             "SELECT d.id, d.name, CASE WHEN a.role = 'owner' THEN d.mac END AS mac, d.city, d.lat, d.lon, a.role,"
             " d.token_hash IS NOT NULL AS registered, coalesce(o.email, d.owner_email) AS owner_email,"
-            " d.auto_update, (SELECT r.fw_version FROM reports r WHERE r.device_id = d.id"
+            " d.auto_update, d.update_failed, (SELECT r.fw_version FROM reports r WHERE r.device_id = d.id"
             " ORDER BY r.received_at DESC LIMIT 1) AS fw_version"
             " FROM devices d JOIN device_access a ON a.device_id = d.id"
             " LEFT JOIN device_access o ON o.device_id = d.id AND o.role = 'owner'"
@@ -60,10 +60,19 @@ def rename_device(user_id: str, device_id: int, name: str) -> bool:
 
 
 def set_auto_update(user_id: str, device_id: int, on: bool) -> bool:
-    """주인이면 보드의 펌웨어 자동 업데이트를 켜거나 끄고 True. 실패는 set_location 과 같다."""
+    """주인이면 보드의 펌웨어 자동 업데이트를 켜거나 끄고 True. 실패는 set_location 과 같다. 서버가 설치 실패로
+    꺼 둔 기록(update_failed)은 주인이 손댄 순간 지운다."""
     with connect() as conn:
-        cur = conn.execute(f"UPDATE devices SET auto_update = %s WHERE id = %s AND {OWNED_BY}",
+        cur = conn.execute(f"UPDATE devices SET auto_update = %s, update_failed = NULL WHERE id = %s AND {OWNED_BY}",
                            (on, device_id, user_id))
+        return cur.rowcount == 1
+
+
+def give_up_update(device_id: int, version: str) -> bool:
+    """보드가 펌웨어 version 설치를 포기했다. 자동 업데이트가 켜져 있었으면 끄고 그 버전을 적어 둔 뒤 True."""
+    with connect() as conn:
+        cur = conn.execute("UPDATE devices SET auto_update = false, update_failed = %s WHERE id = %s AND auto_update",
+                           (version, device_id))
         return cur.rowcount == 1
 
 

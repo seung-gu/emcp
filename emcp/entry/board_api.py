@@ -9,6 +9,7 @@
 """
 
 import os
+import re
 from datetime import datetime, timezone
 
 import sentry_sdk
@@ -111,12 +112,19 @@ async def weather_report(request: Request) -> JSONResponse:
     row.update(record)
     buffer.append(row)
 
+    # 보드가 펌웨어(ota_tried)를 몇 번 받아 보고도 설치하지 못해 포기했다(ota_failed). 몇 번에 포기할지는 보드가
+    # 정한다. 자동 업데이트를 끄고 그 버전을 적어 두면 대시보드가 꺼진 이유를 보여 준다. 이 답에는 새 버전이
+    # 없으니 보드는 시도 기록을 지우고, 주인이 다시 켜면 다음 보고부터 처음부터 다시 시도한다.
+    gave_up = "token" in report and report.get("ota_failed") is True and device["auto_update"]
+    if gave_up:
+        await _give_up_update(device["id"], report.get("ota_tried"))
+
     # 자동 업데이트를 켠 보드가 최신 릴리스가 아니면 새 버전을 알려 준다. 보드는 /firmware 에서 받아 설치하고
     # 다시 켜진다. 릴리스 빌드는 fw_version 에 태그 이름(v1)을 싣고 커밋은 fw_commit 에 따로 싣는다. 그 전
     # 펌웨어는 fw_version 이 커밋이다.
     commit = report.get("fw_commit") or _field(report, "fw_version")
-    if "token" in report and (new := firmware.offer(report.get("fw_board"), commit, battery_mv,
-                                                    device["auto_update"])):
+    if "token" in report and not gave_up and (new := firmware.offer(report.get("fw_board"), commit, battery_mv,
+                                                                    device["auto_update"])):
         body = {**body, "ota_version": new}
         print(f"ota offered: {mac} {commit} -> {new[:7]}", flush=True)
 
@@ -128,6 +136,17 @@ async def weather_report(request: Request) -> JSONResponse:
 
     # Neon 으로 옮기는 건 한 시간마다 타이머가 한다 (actions.run_jobs). 보드는 DB 를 기다리지 않는다.
     return JSONResponse(body, status_code=status)
+
+
+async def _give_up_update(device_id: int, tried) -> None:
+    """보드가 설치를 포기한 버전을 적고 자동 업데이트를 끈다. 버전은 받아 둔 릴리스면 태그 이름, 아니면 짧은 커밋."""
+    tried = tried if isinstance(tried, str) and re.fullmatch(r"[0-9a-f]{40}", tried) else None
+    version = firmware.latest_version() if tried and tried == firmware.current() else (tried or "?")[:7]
+    if await run_in_threadpool(db.boards.give_up_update, device_id, version):
+        await run_in_threadpool(devices.load)
+        print(f"ota given up: device {device_id} {version}, auto update off", flush=True)
+        sentry_sdk.capture_message(f"보드 {device_id} 가 펌웨어 {version} 설치를 포기해서 자동 업데이트를 껐다",
+                                   level="warning")
 
 
 async def firmware_file(request: Request) -> Response:

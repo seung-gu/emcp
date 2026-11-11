@@ -163,4 +163,7 @@ MIGRATIONS = [
     # 지난번 wake 에서 라디오가 켜져 있던 시간(Wi-Fi 연결부터 끊기까지). prev_awake_ms 와 나란히 보면 깨어 있던
     # 시간이 통신(HTTPS)에서 늘었는지 화면 갱신에서 늘었는지 갈린다.
     "ALTER TABLE reports ADD COLUMN prev_radio_ms INT",
+    # 보드가 업데이트를 몇 번 받아 보고도 설치하지 못해 포기하면(보고의 ota_failed) 서버가 자동 업데이트를 끄고
+    # 그 버전(태그 이름, 모르면 짧은 커밋)을 적어 둔다. 대시보드가 꺼진 이유로 보여 주고, 주인이 다시 켜면 지운다.
+    "ALTER TABLE devices ADD COLUMN update_failed TEXT",
 ]
