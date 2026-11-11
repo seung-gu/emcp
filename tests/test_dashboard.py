@@ -3,6 +3,7 @@
 from markupsafe import escape
 
 from emcp.entry import web
+from emcp.infra import db
 from emcp.state import devices
 from helpers import new_code, post_form, register, sign_in
 
@@ -162,3 +163,20 @@ def test_only_the_owner_changes_auto_update(client, accounts):
 def test_page_has_a_dark_mode_switch(client, accounts):
     sign_in(client, accounts.add("user_me"))
     assert 'id="dark-mode"' in client.get("/dashboard").text
+
+
+def test_radio_time_lands_on_the_wake_it_measured(client, accounts):
+    me = accounts.add("user_me")
+    _, device = register(client, me, MAC)
+    # 10:30 보고에 실려 온 값은 10:00 wake 를 잰 것이라 10:00 행에 붙는다. 10:00 보고의 값(401)은 그 앞 wake 의 것인데
+    # 그 행이 없으니 어디에도 안 보인다.
+    db.reports.add_reports([
+        {"received_at": "2026-11-11T10:00:00+00:00", "device_id": device, "rssi": -55, "wifi_attempts": 1,
+         "prev_awake_ms": 1901, "prev_radio_ms": 401},
+        {"received_at": "2026-11-11T10:30:00+00:00", "device_id": device, "rssi": -55, "wifi_attempts": 1,
+         "prev_awake_ms": 2402, "prev_radio_ms": 913},
+    ])
+    sign_in(client, me)
+    page = client.get("/dashboard").text
+    assert "<td>2402</td><td>913</td>" in page
+    assert "401" not in page

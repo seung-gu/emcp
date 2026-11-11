@@ -16,7 +16,7 @@ REPORT_FIELDS = {
     "fw_version": str,
     "battery_mv": int, "chip_c": float, "room_c": float, "room_rh": float,
     "wifi_ms": int, "rssi": int, "wifi_attempts": int,
-    "reset_reason": int, "prev_awake_ms": int, "nvs_free": int, "nvs_total": int,
+    "reset_reason": int, "prev_awake_ms": int, "prev_radio_ms": int, "nvs_free": int, "nvs_total": int,
 }
 # 서버가 그 보고에 돌려준 날씨. 조회에 실패한 보고는 전부 비어 있다.
 WEATHER_FIELDS = ("city", "lat", "lon", "out_temp_c", "out_humidity", "out_temp_max_c",

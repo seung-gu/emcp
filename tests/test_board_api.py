@@ -145,3 +145,9 @@ def test_check_in_failure_reaches_error_alerts(client, monkeypatch):
     monkeypatch.setattr(db.boards, "board_check_in", down)
     assert check_in(client, new_token(), MAC, new_code())[0] == 503
     assert [str(e) for e in sent] == ["database unreachable"]
+
+
+def test_report_keeps_the_last_wakes_radio_time(client, accounts):
+    token, _ = register(client, accounts.add("user_me"), MAC)
+    report(client, token, MAC, prev_radio_ms=812)
+    assert buffered()[-1]["prev_radio_ms"] == 812

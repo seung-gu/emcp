@@ -180,14 +180,20 @@ def attach_awake(rows: list[dict]) -> None:
 
     보드별로 묶은 뒤에 당긴다. 여러 대가 섞여 있으면 바로 다음 행이 다른 보드의 보고라, 그냥
     당기면 남의 wake 시간을 붙이게 된다. MAC 을 보내지 않던 옛 보고는 보드 번호 하나에 모여 있어 한 묶음으로
-    처리하는데, 그 구간에 두 대가 섞여 있었다면 그 값은 바로잡을 수 없다."""
+    처리하는데, 그 구간에 두 대가 섞여 있었다면 그 값은 바로잡을 수 없다.
+
+    prev_radio_ms(지난 wake 에서 라디오가 켜져 있던 시간)도 같은 이유로 같은 규칙으로 당겨 radio_ms 로 붙인다."""
     by_board: dict = {}
     for r in rows:
         by_board.setdefault(r.get("device_id"), []).append(r)
     for group in by_board.values():
         for cur, nxt in zip(group, group[1:]):
-            if nxt.get("wifi_attempts") == 1 and (v := nxt.get("prev_awake_ms")):
+            if nxt.get("wifi_attempts") != 1:
+                continue
+            if (v := nxt.get("prev_awake_ms")):
                 cur["awake_ms"] = v
+            if (v := nxt.get("prev_radio_ms")):
+                cur["radio_ms"] = v
 
 
 def attach_nvs(rows: list[dict]) -> int | None:
@@ -224,7 +230,7 @@ def table_rows(recent: list[dict]) -> list[dict]:
             "battery_mv": r.get("battery_mv"), "wifi_ms": r.get("wifi_ms"),
             "rssi": r.get("rssi"), "strength": rssi_label(r["rssi"]),
             "chip_c": r.get("chip_c"), "room_c": r.get("room_c"), "room_rh": r.get("room_rh"),
-            "i2c": _i2c_label(r), "awake_ms": r.get("awake_ms"),
+            "i2c": _i2c_label(r), "awake_ms": r.get("awake_ms"), "radio_ms": r.get("radio_ms"),
             "reset": _reset_label(r.get("reset_reason")),
             "logged": len(r.get("log") or []) or "",
         })

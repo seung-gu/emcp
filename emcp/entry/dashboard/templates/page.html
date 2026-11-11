@@ -74,11 +74,11 @@
 <table>
   <tr><th>시각 (현지)</th>{% if not board_id %}<th>보드</th>{% endif %}<th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th>
       <th>칩 °C</th><th>실내 °C</th><th>습도 %</th><th>I2C</th>
-      <th>깨어 있던 ms</th><th>리셋 사유</th><th>못 보낸 보고</th></tr>
+      <th>깨어 있던 ms</th><th>라디오 ms</th><th>리셋 사유</th><th>못 보낸 보고</th></tr>
   {% for r in table %}
-  <tr><td>{{ r.time }}<span class="dim">{{ r.zone }}</span></td>{% if not board_id %}<td>{{ board(r.name, r.mac) }}</td>{% endif %}<td>{{ r.battery_mv|cell }}</td><td>{{ r.wifi_ms|cell }}</td><td>{{ r.rssi|cell }}</td><td>{{ r.strength }}</td><td>{{ r.chip_c|cell }}</td><td>{{ r.room_c|cell }}</td><td>{{ r.room_rh|cell }}</td><td>{% if r.i2c is none %}<span class="dim">?</span>{% else %}{{ r.i2c }}{% endif %}</td><td>{{ r.awake_ms|cell }}</td><td>{{ r.reset }}</td><td>{{ r.logged }}</td></tr>
+  <tr><td>{{ r.time }}<span class="dim">{{ r.zone }}</span></td>{% if not board_id %}<td>{{ board(r.name, r.mac) }}</td>{% endif %}<td>{{ r.battery_mv|cell }}</td><td>{{ r.wifi_ms|cell }}</td><td>{{ r.rssi|cell }}</td><td>{{ r.strength }}</td><td>{{ r.chip_c|cell }}</td><td>{{ r.room_c|cell }}</td><td>{{ r.room_rh|cell }}</td><td>{% if r.i2c is none %}<span class="dim">?</span>{% else %}{{ r.i2c }}{% endif %}</td><td>{{ r.awake_ms|cell }}</td><td>{{ r.radio_ms|cell }}</td><td>{{ r.reset }}</td><td>{{ r.logged }}</td></tr>
   {% else %}
-  <tr><td colspan="{{ 12 if board_id else 13 }}" class="empty">아직 보고가 없습니다.</td></tr>
+  <tr><td colspan="{{ 13 if board_id else 14 }}" class="empty">아직 보고가 없습니다.</td></tr>
   {% endfor %}
 </table>
 <dl class="legend">
@@ -86,6 +86,10 @@
     잠들기 직전까지를 잽니다. 이 시간은 보고를 보낸 뒤에야 끝나서 보드는 다음 보고에 실어 보내고,
     여기서는 그 값을 원래 행에 붙여 보여 줍니다. 그래서 맨 윗줄은 다음 보고가 올 때까지 비어 있고,
     중간에 못 보낸 보고가 있던 자리도 비어 있습니다.</dd>
+  <dt>라디오 ms</dt><dd>깨어 있던 시간 중 Wi-Fi가 켜져 있던 시간입니다. 연결하고, 서버에 보고하고, 끊기까지를
+    잽니다. 여기서 Wi-Fi ms를 빼면 서버와 주고받은 시간이고, 깨어 있던 ms에서 이 값을 빼면 대부분 화면을
+    그린 시간입니다. 깨어 있던 ms와 같은 방식으로 다음 보고에 실려 와서 원래 행에 붙습니다. 이 값을 보내는
+    펌웨어부터 채워집니다.</dd>
   <dt>리셋 사유</dt><dd>보드가 이번에 어떻게 켜졌는지입니다. 딥슬립 타이머로 정상적으로 깨어났으면
     비워 두고, 다른 일이 있었을 때만 채웁니다. <b>전원투입</b>: 전원이 새로 들어옴 (USB 연결,
     배터리 재장착). <b>외부핀</b>: RESET 버튼. <b>SW재시작</b>: Wi-Fi 설정을 저장하고 스스로

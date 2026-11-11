@@ -160,4 +160,7 @@ MIGRATIONS = [
     " JOIN device_access vb ON vb.user_id = v.user_id AND vb.role = 'owner'"
     " WHERE v.role = 'viewer' AND v.accepted"
     " ON CONFLICT (device_id, user_id) DO UPDATE SET accepted = true",
+    # 지난번 wake 에서 라디오가 켜져 있던 시간(Wi-Fi 연결부터 끊기까지). prev_awake_ms 와 나란히 보면 깨어 있던
+    # 시간이 통신(HTTPS)에서 늘었는지 화면 갱신에서 늘었는지 갈린다.
+    "ALTER TABLE reports ADD COLUMN prev_radio_ms INT",
 ]
