@@ -72,11 +72,11 @@
 
 <h2>최근 보고</h2>
 <table>
-  <tr><th>시각 (현지)</th>{% if not board_id %}<th>보드</th>{% endif %}<th>배터리 mV</th><th>Wi-Fi ms</th><th>RSSI</th><th>강도</th>
+  <tr><th>시각 (현지)</th>{% if not board_id %}<th>보드</th>{% endif %}<th>배터리 mV</th><th>Wi-Fi ms</th><th>라디오 ms</th><th>RSSI</th><th>강도</th>
       <th>칩 °C</th><th>실내 °C</th><th>습도 %</th><th>I2C</th>
-      <th>깨어 있던 ms</th><th>라디오 ms</th><th>리셋 사유</th><th>못 보낸 보고</th></tr>
+      <th>깨어 있던 ms</th><th>리셋 사유</th><th>못 보낸 보고</th></tr>
   {% for r in table %}
-  <tr><td>{{ r.time }}<span class="dim">{{ r.zone }}</span></td>{% if not board_id %}<td>{{ board(r.name, r.mac) }}</td>{% endif %}<td>{{ r.battery_mv|cell }}</td><td>{{ r.wifi_ms|cell }}</td><td>{{ r.rssi|cell }}</td><td>{{ r.strength }}</td><td>{{ r.chip_c|cell }}</td><td>{{ r.room_c|cell }}</td><td>{{ r.room_rh|cell }}</td><td>{% if r.i2c is none %}<span class="dim">?</span>{% else %}{{ r.i2c }}{% endif %}</td><td>{{ r.awake_ms|cell }}</td><td>{{ r.radio_ms|cell }}</td><td>{{ r.reset }}</td><td>{{ r.logged }}</td></tr>
+  <tr><td>{{ r.time }}<span class="dim">{{ r.zone }}</span></td>{% if not board_id %}<td>{{ board(r.name, r.mac) }}</td>{% endif %}<td>{{ r.battery_mv|cell }}</td><td>{{ r.wifi_ms|cell }}</td><td>{{ r.radio_ms|cell }}</td><td>{{ r.rssi|cell }}</td><td>{{ r.strength }}</td><td>{{ r.chip_c|cell }}</td><td>{{ r.room_c|cell }}</td><td>{{ r.room_rh|cell }}</td><td>{% if r.i2c is none %}<span class="dim">?</span>{% else %}{{ r.i2c }}{% endif %}</td><td>{{ r.awake_ms|cell }}</td><td>{{ r.reset }}</td><td>{{ r.logged }}</td></tr>
   {% else %}
   <tr><td colspan="{{ 13 if board_id else 14 }}" class="empty">아직 보고가 없습니다.</td></tr>
   {% endfor %}

@@ -171,12 +171,12 @@ def test_radio_time_lands_on_the_wake_it_measured(client, accounts):
     # 10:30 보고에 실려 온 값은 10:00 wake 를 잰 것이라 10:00 행에 붙는다. 10:00 보고의 값(401)은 그 앞 wake 의 것인데
     # 그 행이 없으니 어디에도 안 보인다.
     db.reports.add_reports([
-        {"received_at": "2026-11-11T10:00:00+00:00", "device_id": device, "rssi": -55, "wifi_attempts": 1,
+        {"received_at": "2026-11-11T10:00:00+00:00", "device_id": device, "wifi_ms": 64, "rssi": -55, "wifi_attempts": 1,
          "prev_awake_ms": 1901, "prev_radio_ms": 401},
-        {"received_at": "2026-11-11T10:30:00+00:00", "device_id": device, "rssi": -55, "wifi_attempts": 1,
+        {"received_at": "2026-11-11T10:30:00+00:00", "device_id": device, "wifi_ms": 64, "rssi": -55, "wifi_attempts": 1,
          "prev_awake_ms": 2402, "prev_radio_ms": 913},
     ])
     sign_in(client, me)
     page = client.get("/dashboard").text
-    assert "<td>2402</td><td>913</td>" in page
+    assert "<td>64</td><td>913</td>" in page and "<td>2402</td>" in page   # Wi-Fi ms 바로 뒤 칸
     assert "401" not in page
