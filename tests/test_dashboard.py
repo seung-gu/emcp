@@ -122,7 +122,7 @@ def test_bad_qr_code(client):
 def test_firmware_column_compares_the_board_with_the_latest_release(client, accounts, releases):
     from emcp.infra import firmware
     from helpers import report
-    releases.publish(["c" * 40, "b" * 40], {"weather-xiao.bin": b"\xe9x"}, tag="v1.04")
+    releases.publish(["c" * 40, "b" * 40], {"weather-xiao.bin": b"\xe9ccccccc"}, tag="v1.04")
     firmware.refresh()
     me = accounts.add("user_me")
     token, device = register(client, me, MAC)
@@ -144,7 +144,7 @@ def test_firmware_column_says_when_the_board_is_up_to_date(client, accounts, rel
     """보고는 초 단위로 한 줄이라, 버전이 다른 두 보고를 한 테스트에서 보내지 않는다."""
     from emcp.infra import firmware
     from helpers import report
-    releases.publish(["c" * 40, "b" * 40], {"weather-xiao.bin": b"\xe9x"}, tag="v1.04")
+    releases.publish(["c" * 40, "b" * 40], {"weather-xiao.bin": b"\xe9ccccccc"}, tag="v1.04")
     firmware.refresh()
     me = accounts.add("user_me")
     token, _ = register(client, me, MAC)

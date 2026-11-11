@@ -9,7 +9,7 @@ from helpers import post_form, register, report
 MAC = "TEST00000001"
 NEW = "c" * 40                 # 릴리스 커밋
 OLD = "b" * 40                 # 릴리스에 들어 있는 옛 커밋
-XIAO = b"\xe9" + b"x" * 1000   # 펌웨어 파일 대신
+XIAO = b"\xe9" + NEW[:7].encode() + b"x" * 1000   # 펌웨어 파일 대신. 진짜처럼 릴리스 커밋을 품는다
 
 
 @pytest.fixture
@@ -105,13 +105,13 @@ def test_fetches_once_after_start_then_only_when_told(client, releases):
     actions.run_due_jobs()                          # 켜진 뒤 첫 작업
     assert firmware.current() == NEW
     newer = "e" * 40
-    releases.publish([newer, NEW, OLD], {"weather-xiao.bin": b"\xe9new"})
+    releases.publish([newer, NEW, OLD], {"weather-xiao.bin": b"\xe9" + newer[:7].encode()})
     asked = releases.requests
     for _ in range(3):
         actions.run_due_jobs()
     assert releases.requests == asked and firmware.current() == NEW   # 다시 묻지 않는다
     assert client.post("/firmware/refresh").json() == {"commit": newer}
-    assert firmware.binary("weather-xiao", newer) == b"\xe9new"
+    assert firmware.binary("weather-xiao", newer) == b"\xe9" + newer[:7].encode()
 
 
 def test_start_fetch_gives_up_after_ten_tries(releases):
@@ -142,3 +142,18 @@ def test_refresh_reports_a_failed_fetch(client, released):
 def test_refreshes_are_limited(client):
     codes = [client.post("/firmware/refresh").status_code for _ in range(21)]
     assert codes == [200] * 20 + [429]
+
+
+def test_firmware_comes_from_the_release_commits_txt_names(releases):
+    """latest 주소가 펌웨어만 아직 예전 릴리스로 넘겨도, commits.txt 가 가리킨 릴리스의 펌웨어를 받는다."""
+    releases.publish([NEW, OLD], {"weather-xiao.bin": XIAO})
+    releases.stale = {"weather-xiao.bin": ("v1", b"\xe9" + OLD[:7].encode())}
+    firmware.refresh()
+    assert firmware.current() == NEW and firmware.binary("weather-xiao", NEW) == XIAO
+
+
+def test_firmware_without_the_release_commit_is_not_kept(releases):
+    releases.publish([NEW, OLD], {"weather-xiao.bin": b"\xe9" + OLD[:7].encode()})
+    with pytest.raises(ValueError):
+        firmware.refresh()
+    assert firmware.current() is None

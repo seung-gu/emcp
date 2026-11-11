@@ -4,8 +4,10 @@
 
 릴리스는 펌웨어 저장소에 v 로 시작하는 태그를 push 하면 GitHub Actions 가 만든다. 파일은 보드 종류마다
 하나(<종류>.bin)와, 릴리스 커밋부터 첫 커밋까지의 SHA 목록(commits.txt)이다. 그 첫 줄이 릴리스 커밋이다.
-GitHub API 대신 릴리스 파일만 받으므로 API 횟수 제한에 걸리지 않는다. 태그 이름은 latest 주소가 넘겨 주는
-주소(/releases/download/<태그>/…)에서 읽는다.
+GitHub API 대신 릴리스 파일만 받으므로 API 횟수 제한에 걸리지 않는다. commits.txt 만 latest 주소로 받고,
+그 주소가 넘겨 주는 주소(/releases/download/<태그>/…)에서 태그를 읽어 펌웨어는 그 태그 주소로 받는다. latest
+주소는 파일마다 따로 넘어가서, 릴리스가 막 나온 직후에는 한 파일만 예전 릴리스를 가리킬 수 있다(v1.2.0 때
+commits.txt 는 새 릴리스, 펌웨어는 v1.1.1 것을 받아 두어 보드들이 옛 펌웨어를 두 번 다시 설치했다).
 
 GitHub 에 주기적으로 묻지 않는다. 받는 때는 둘뿐이다. 릴리스 워크플로가 릴리스를 만든 직후 POST
 /firmware/refresh 로 알릴 때, 그리고 서버가 켜질 때 한 번(받아 둔 것이 메모리에만 있어서 재시작하면 비므로.
@@ -16,13 +18,14 @@ import re
 
 import httpx
 
-LATEST = "https://github.com/seung-gu/eink-weather-display/releases/latest/download/"
+RELEASES = "https://github.com/seung-gu/eink-weather-display/releases/"
+LATEST = RELEASES + "latest/download/"
 # 릴리스에 올리는 보드 종류. 펌웨어 저장소 platformio.ini 의 env 이름이고, 그 저장소 release.yml 이 빌드하는
 # 목록과 같아야 한다. Super Mini(weather-supermini)는 쓰는 보드가 없어서 뺐다.
 BOARDS = ("weather-xiao",)
 MIN_BATTERY_MV = 3700   # 이보다 낮으면 업데이트를 미룬다. 받는 도중에 전원이 꺼지지 않게
 
-# 받아 둔 최신 릴리스. commit 은 릴리스 커밋의 SHA, tag 는 태그 이름(v1.04, 읽지 못하면 짧은 커밋), files 는
+# 받아 둔 최신 릴리스. commit 은 릴리스 커밋의 SHA, tag 는 태그 이름(v1.2.0), files 는
 # 보드 종류마다 펌웨어. 통째로 바꿔 끼우므로 읽는 쪽은 잠그지 않는다.
 _release: dict | None = None
 _loaded = False   # 켜진 뒤 GitHub 에서 확인을 마쳤나. 릴리스가 없다는 답도 확인이다
@@ -43,16 +46,18 @@ def refresh() -> None:
         if _release and _release["commit"] == commits[0]:
             _loaded = True
             return
+        tag = next((m.group(1) for h in (*r.history, r)
+                    if (m := re.search(r"/releases/download/([^/]+)/commits\.txt$", h.url.path))), None)
+        if tag is None:
+            raise ValueError("latest 주소가 릴리스 태그 주소로 넘어가지 않았다")
         files = {}
         for board in BOARDS:
-            f = client.get(LATEST + f"{board}.bin")
+            f = client.get(RELEASES + f"download/{tag}/{board}.bin")
             f.raise_for_status()
+            # 펌웨어는 자기 커밋(짧은 SHA)을 글자로 품고 있다(펌웨어의 FW_COMMIT). 없으면 다른 릴리스의 파일이다.
+            if commits[0][:7].encode() not in f.content:
+                raise ValueError(f"{tag} 의 {board}.bin 에 릴리스 커밋 {commits[0][:7]} 이 없다")
             files[board] = f.content
-        # 받는 사이에 다음 릴리스가 나왔으면 파일과 목록이 서로 다른 릴리스다. 다음 확인 때 다시 받는다.
-        if client.get(LATEST + "commits.txt").text.split()[:1] != commits[:1]:
-            return
-    tag = next((m.group(1) for h in (*r.history, r)
-                if (m := re.search(r"/releases/download/([^/]+)/commits\.txt$", h.url.path))), commits[0][:7])
     _release, _loaded = {"commit": commits[0], "tag": tag, "files": files}, True
     print(f"firmware release {tag} {commits[0][:7]}: " + ", ".join(f"{b} {len(d)}B" for b, d in files.items()),
           flush=True)

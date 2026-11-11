@@ -103,13 +103,15 @@ def open_meteo(monkeypatch):
 
 class Releases:
     """GitHub 릴리스 대신 답한다. publish 로 릴리스를 올린다. down 이면 500. GitHub 처럼 latest 주소는 그
-    태그의 주소로 넘긴다."""
+    태그의 주소로 넘긴다. stale 에 넣은 파일은 latest 주소가 아직 예전 태그(그 내용)로 넘어간다. 릴리스가 막
+    나온 직후의 GitHub 처럼."""
 
     def __init__(self):
         self.files: dict[str, bytes] = {}
         self.tag = None
         self.down = False
         self.requests = 0
+        self.stale: dict[str, tuple[str, bytes]] = {}   # 파일 이름 → (예전 태그, 예전 내용)
 
     def publish(self, commits: list[str], files: dict[str, bytes], tag: str = "v2") -> None:
         self.files = {"commits.txt": "\n".join(commits).encode(), **files}
@@ -124,6 +126,12 @@ class Releases:
         path = request.url.path
         if request.url.host != "github.com" or not self.files:
             return httpx.Response(404)
+        for name, (old_tag, content) in self.stale.items():
+            old = latest.replace("/latest/download/", f"/download/{old_tag}/")
+            if path == latest + name:
+                return httpx.Response(302, headers={"location": old + name})
+            if path == old + name:
+                return httpx.Response(200, content=content)
         if path.startswith(latest) and path.removeprefix(latest) in self.files:
             return httpx.Response(302, headers={"location": tagged + path.removeprefix(latest)})
         if path.startswith(tagged) and path.removeprefix(tagged) in self.files:
