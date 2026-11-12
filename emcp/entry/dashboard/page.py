@@ -64,7 +64,7 @@ def render(rows: list[dict], board_id: int | None = None, boards: list[dict] = (
         tz=rows[-1]["tz"] if rows else reports.DEFAULT_TZ,
         weakest=reports.WEAKEST,
         table=reports.table_rows(recent),
-        steps=reports.STEPS,
+        steps=[name for _, name, _ in reports.STEP_GROUPS],
         awake_max=reports.AWAKE_MAX_MS,
         logs=reports.log_blocks(recent),
         plot_data=Markup(reports.plot_data(rows, board_id, nvs_total)),

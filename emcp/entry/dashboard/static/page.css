@@ -13,10 +13,10 @@
              확인했다. 선 아래 면은 같은 색을 --plot-fill-alpha 만큼 옅게. */
           --plot-battery_mv: #12936b; --plot-rssi: #2a78d6; --plot-awake_ms: #c03f8a; --plot-room_c: #e0611f;
           --plot-room_rh: #0b8fb3; --plot-chip_c: #d64545; --plot-nvs_used: #6a5acd; --plot-fill-alpha: .10;
-          /* 깨어 있던 시간 그래프의 단계 선. dataviz 기본 범주 색 앞 7가지를 그 순서대로 썼고, 이웃한 색끼리 색약에서도
+          /* 깨어 있던 시간 그래프의 단계 선. dataviz 기본 범주 색 8가지를 그 순서대로 썼고, 이웃한 색끼리 색약에서도
              구분되는지 검사기로 확인했다. 밝은 화면에서 3:1 이 안 되는 색(청록, 노랑, 분홍)은 표에 같은 값이 있어 괜찮다. */
           --step-1: #2a78d6; --step-2: #eb6834; --step-3: #1baf7a; --step-4: #eda100; --step-5: #e87ba4;
-          --step-6: #008300; --step-7: #6250d6; }
+          --step-6: #008300; --step-7: #6250d6; --step-8: #e34948; }
   :root[data-theme="dark"] { color-scheme: dark;
           --bg: #14161b; --text: #e6e8ee; --muted: #a0a7b4; --line: #2c313b; --control: #4a5262;
           --accent: #7c83f2; --accent-fill: rgba(124,131,242,.16);
@@ -24,7 +24,7 @@
           --plot-battery_mv: #1f9e72; --plot-rssi: #3a82dc; --plot-awake_ms: #d0559a; --plot-room_c: #e06a35;
           --plot-room_rh: #2496bd; --plot-chip_c: #e05a5a; --plot-nvs_used: #8577e6; --plot-fill-alpha: .16;
           --step-1: #3987e5; --step-2: #d95926; --step-3: #199e70; --step-4: #c98500; --step-5: #d55181;
-          --step-6: #008300; --step-7: #9085e9; }
+          --step-6: #008300; --step-7: #9085e9; --step-8: #e66767; }
   [hidden] { display: none !important; }
   body { font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
          background: var(--bg); color: var(--text); margin: 0 auto; padding: 24px; max-width: 1060px; }
@@ -83,11 +83,11 @@
   th:first-child, td:first-child { text-align: left; }
   /* 글자가 들어가는 칸만 좌정렬. 나머지는 숫자라 우정렬이 자리를 맞춘다. */
   th.text, td.text { text-align: left; }
-  /* 최근 보고 표는 단계 칸을 펼치면 화면보다 넓어져서 표만 옆으로 민다. 단계 칸은 접어 두고 깨어 있던 ms 제목의
-     버튼으로 편다. */
+  /* 최근 보고 표의 두 모양. 평소에는 측정값(base)을, 깨어 있던 ms 제목의 버튼을 누르면 그 자리에 시간 칸(step)을
+     보인다. 둘 다 보이면 표가 화면보다 넓어진다. 좁은 화면에서는 표만 옆으로 민다. */
   .scroll { overflow-x: auto; }
-  table.reports:not(.open) .step { display: none; }
-  table.reports.open th, table.reports.open td { white-space: nowrap; }
+  table.reports:not(.open) .step, table.reports.open .base { display: none; }
+  table.reports.open td { white-space: nowrap; }
   th button.more { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
                    white-space: nowrap; }
   th button.more::after { content: " ▸"; color: var(--accent); }

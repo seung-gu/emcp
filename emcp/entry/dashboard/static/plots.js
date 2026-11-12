@@ -83,19 +83,16 @@
     return { x: x, ys: ys, raws: raws, src: src };
   }
 
-  // 한 그래프의 선들. 겹쳐 그리는 그래프는 첫 선(합계)을 글자색으로, 나머지(단계)는 범주 색 7가지를 차례로
-  // 쓰고 8번째부터는 같은 색을 점선으로 다시 쓴다. 색이 7가지를 넘으면 색만으로는 구분이 안 되기 때문이다.
+  // 한 그래프의 선들. 겹쳐 그리는 그래프는 첫 선(합계)을 글자색으로, 나머지(단계)는 범주 색을 차례로 쓴다.
   function linesFor(key, p) {
     var group = data.groups[key];
     if (!group) {
       var pts = points(key);
-      return { x: pts.x, src: pts.src, ys: [pts.y], raws: [pts.raw], names: [null],
-               colors: [p.color(key)], dashes: [null] };
+      return { x: pts.x, src: pts.src, ys: [pts.y], raws: [pts.raw], names: [null], colors: [p.color(key)] };
     }
     var keys = group.map(function (g) { return g[0]; }), g = groupPoints(keys, data.fixed[key]);
     return { x: g.x, src: g.src, ys: g.ys, raws: g.raws, names: group.map(function (g) { return g[1]; }),
-             colors: keys.map(function (k, s) { return s ? p.step((s - 1) % 7) : p.fg; }),
-             dashes: keys.map(function (k, s) { return s > 7 ? [6, 4] : null; }) };
+             colors: keys.map(function (k, s) { return s ? p.step(s - 1) : p.fg; }) };
   }
 
   function nearest(ys, i) {
@@ -278,8 +275,7 @@
       // 선 하나인 그래프는 선 아래 면을 옅게 칠한다. 면은 늘 아래쪽으로 채운다. 기본값은 0 쪽이라 신호세기처럼
       // 음수인 값은 선 위가 채워진다. 겹쳐 그리는 그래프는 면이 서로 덮어서 칠하지 않고, 이름표를 붙인다.
       var series = [{}].concat(lines.ys.map(function (y, s) {
-        return { label: lines.names[s] || "", stroke: lines.colors[s], width: 2,
-                 dash: lines.dashes[s] || undefined, spanGaps: false,
+        return { label: lines.names[s] || "", stroke: lines.colors[s], width: 2, spanGaps: false,
                  fill: grouped ? undefined : tint(lines.colors[s], p.fillAlpha),
                  fillTo: function (u) { return u.scales.y.min; },
                  points: { size: 5, stroke: lines.colors[s], fill: p.bg } };
@@ -287,8 +283,7 @@
       c.u = new uPlot({
         width: el.clientWidth, height: c.height,
         // 겹쳐 그리는 그래프의 이름표. 누르면 그 선을 끄고 켠다.
-        legend: { show: grouped, live: false,
-                  markers: { dash: function (u, s) { return u.series[s].dash ? "dashed" : "solid"; } } },
+        legend: { show: grouped, live: false },
         tzDate: zoned,                        // 눈금 위치도 날씨 위치의 자정·정시에 맞춘다
         scales: { x: { time: true, auto: false, min: view.min, max: view.max },
                   y: fixed ? { range: fixed } : {} },

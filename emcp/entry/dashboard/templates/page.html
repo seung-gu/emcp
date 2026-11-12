@@ -75,14 +75,14 @@
 <h2>최근 보고</h2>
 <div class="scroll">
 <table class="reports" id="reports">
-  <tr><th>시각 (현지)</th>{% if not board_id %}<th class="text">보드</th>{% endif %}<th>배터리 mV</th><th>RSSI</th><th class="text">강도</th>
-      <th>칩 °C</th><th>실내 °C</th><th>습도 %</th><th class="text">I2C</th>
+  <tr><th>시각 (현지)</th>{% if not board_id %}<th class="text">보드</th>{% endif %}<th class="base">배터리 mV</th><th class="base">RSSI</th><th class="text base">강도</th>
+      <th class="base">칩 °C</th><th class="base">실내 °C</th><th class="base">습도 %</th><th class="text base">I2C</th>
       <th><button type="button" class="more" id="steps-toggle" aria-expanded="false" aria-controls="reports"
-        title="라디오 ms와 단계별 ms 펼치기">깨어 있던 ms</button></th>
-      <th class="step">라디오 ms</th>{% for _, name in steps %}<th class="step">{{ loop.index }} {{ name }}</th>{% endfor %}
-      <th class="text">리셋 사유</th><th>못 보낸 보고</th></tr>
+        title="단계별 시간 보기">깨어 있던 ms</button></th>
+      <th class="step">라디오 ms</th>{% for name in steps %}<th class="step">{{ loop.index }} {{ name }}</th>{% endfor %}
+      <th class="text base">리셋 사유</th><th class="base">못 보낸 보고</th></tr>
   {% for r in table %}
-  <tr><td>{{ r.time }}<span class="dim">{{ r.zone }}</span></td>{% if not board_id %}<td class="text">{{ board(r.name, r.mac) }}</td>{% endif %}<td>{{ r.battery_mv|cell }}</td><td>{{ r.rssi|cell }}</td><td class="text">{{ r.strength }}</td><td>{{ r.chip_c|cell }}</td><td>{{ r.room_c|cell }}</td><td>{{ r.room_rh|cell }}</td><td class="text">{% if r.i2c is none %}<span class="dim">?</span>{% else %}{{ r.i2c }}{% endif %}</td><td>{{ r.awake_ms|cell }}</td><td class="step">{{ r.radio_ms|cell }}</td>{% for v in r.steps %}<td class="step">{{ v|cell }}</td>{% endfor %}<td class="text">{{ r.reset }}</td><td>{{ r.logged }}</td></tr>
+  <tr><td>{{ r.time }}<span class="dim">{{ r.zone }}</span></td>{% if not board_id %}<td class="text">{{ board(r.name, r.mac) }}</td>{% endif %}<td class="base">{{ r.battery_mv|cell }}</td><td class="base">{{ r.rssi|cell }}</td><td class="text base">{{ r.strength }}</td><td class="base">{{ r.chip_c|cell }}</td><td class="base">{{ r.room_c|cell }}</td><td class="base">{{ r.room_rh|cell }}</td><td class="text base">{% if r.i2c is none %}<span class="dim">?</span>{% else %}{{ r.i2c }}{% endif %}</td><td>{{ r.awake_ms|cell }}</td><td class="step">{{ r.radio_ms|cell }}</td>{% for v in r.steps %}<td class="step">{{ v|cell }}</td>{% endfor %}<td class="text base">{{ r.reset }}</td><td class="base">{{ r.logged }}</td></tr>
   {% else %}
   <tr><td colspan="{{ steps|length + (12 if board_id else 13) }}" class="empty">아직 보고가 없습니다.</td></tr>
   {% endfor %}
@@ -92,34 +92,28 @@
   <dt>깨어 있던 ms</dt><dd>한 번 깨어나서 펌웨어가 시작한 때부터 잠들기 직전까지입니다 (그 전의 부트로더 시간은 빠짐).
     이 시간은 보고를 보낸 뒤에야 끝나서 보드는 다음 보고에 실어 보내고, 여기서는 그 값을 원래 행에 붙여 보여 줍니다.
     그래서 맨 윗줄은 다음 보고가 올 때까지 비어 있고, 중간에 못 보낸 보고가 있던 자리도 비어 있습니다. 제목을
-    누르면 라디오 ms와 단계별 시간이 펼쳐집니다.</dd>
+    누르면 배터리, 온도 같은 칸 대신 라디오 ms와 단계별 시간이 나오고, 다시 누르면 돌아옵니다.</dd>
   <dt>단계</dt><dd>깨어 있던 시간을 일어나는 순서대로 나눈 것입니다. 한 단계는 앞 단계가 끝난 때부터 그 단계가 끝날
     때까지라서, 다 더하면 깨어 있던 ms가 됩니다. 깨어 있던 ms처럼 다음 보고에 실려 와서 원래 행에 붙고, 이 값을 보내는
-    펌웨어(v1.4.0)부터 채워집니다. 그 전 보고에는 3번(예전 표의 Wi-Fi ms)만 있습니다.
+    펌웨어(v1.4.0)부터 채워집니다. 그 전 보고에는 2번에 공유기 연결 시간(예전 표의 Wi-Fi ms)만 들어 있습니다.
     <ol>
-      <li><b>시작·측정</b>: 펌웨어 시작부터 Wi-Fi를 켜기 직전까지. 배터리 전압, 칩 온도, 실내 온습도를 재고 Wi-Fi 시도
-        횟수를 적습니다.</li>
-      <li><b>Wi-Fi 켜기</b>: 라디오를 켜는 시간입니다.</li>
-      <li><b>공유기 연결</b>: 공유기에 연결하고 IP 주소를 받기까지입니다. 3초 안에 안 되면 실패입니다. 그 보고를 보낸 wake
-        자신의 값이라 단계 중 이것만 그 행에 바로 들어 있습니다.</li>
+      <li><b>시작·측정</b>: 펌웨어 시작부터 Wi-Fi를 켜기 직전까지입니다. 배터리 전압, 칩 온도, 실내 온습도를 재고 Wi-Fi
+        시도 횟수를 적습니다.</li>
+      <li><b>Wi-Fi 연결</b>: 라디오를 켜고 공유기에 연결해 IP 주소를 받기까지입니다. 공유기 연결이 3초 안에 안 되면
+        실패입니다.</li>
       <li><b>DNS</b>: 서버 이름으로 주소를 찾는 시간입니다.</li>
       <li><b>암호화 연결</b>: 서버와 연결을 맺고 HTTPS 암호화를 여는 시간입니다. 서버 인증서 확인이 들어 있고, 보드와 서버
         사이를 여러 번 오가는 단계라 길이 느려지면 크게 늡니다.</li>
-      <li><b>응답 대기</b>: 보고를 만들어 보내고 서버의 답이 오기 시작할 때까지입니다. 서버가 처리하는 시간(날씨 조회
+      <li><b>응답</b>: 보고를 만들어 보내고 서버의 답(날씨)을 끝까지 받기까지입니다. 서버가 처리하는 시간(날씨 조회
         포함)도 여기 들어갑니다.</li>
-      <li><b>응답 받기</b>: 답으로 온 날씨를 끝까지 받고 연결을 닫기까지입니다.</li>
-      <li><b>저장</b>: 받은 날씨를 저장 공간에 적고 못 보낸 보고를 지우는 시간입니다. 서버에 닿지 못한 wake는 실패 기록을
-        적는 시간입니다.</li>
-      <li><b>Wi-Fi 끄기</b>: 라디오를 끄는 시간입니다.</li>
-      <li><b>패널 깨우기</b>: 화면 패널을 켜고 초기화하는 시간입니다.</li>
-      <li><b>그리기</b>: 보여 줄 화면을 메모리에 그리는 시간입니다.</li>
-      <li><b>화면 갱신</b>: 그린 화면을 패널에 보내고 갱신이 끝날 때까지입니다. 평소에는 부분 갱신이고, 12시간마다와
+      <li><b>화면</b>: 패널을 깨우고 화면을 그려 보내고 갱신이 끝날 때까지입니다. 평소에는 부분 갱신이고, 12시간마다와
         재시작 직후에는 오래 걸리는 전체 갱신입니다.</li>
-      <li><b>마무리</b>: 화면을 그린 뒤 잠들기 직전까지 남은 일입니다.</li>
+      <li><b>나머지</b>: 받은 날씨 저장, Wi-Fi 끄기, 잠들기 전 정리를 합친 시간입니다. 서버에 닿지 못한 wake는 날씨 대신
+        실패 기록을 저장합니다.</li>
       <li><b>새 펌웨어</b>: 서버의 답에 새 펌웨어가 있는지 보고, 있으면 Wi-Fi를 다시 켜서 받는 시간입니다 (약 1분).
         없으면 거의 0입니다.</li>
     </ol></dd>
-  <dt>라디오 ms</dt><dd>Wi-Fi를 켠 순간부터 끈 순간까지, 단계로는 2~9번을 더한 것입니다. 라디오가 켜져 있는 동안
+  <dt>라디오 ms</dt><dd>Wi-Fi를 켠 순간부터 끈 순간까지입니다. 단계로는 2~5번과, 7번 중 날씨 저장과 Wi-Fi 끄기입니다. 라디오가 켜져 있는 동안
     100 mA쯤 쓰니 배터리가 가장 많이 나가는 구간입니다. 새 펌웨어를 받은 wake도 이 구간만 잽니다. 다운로드는 깨어
     있던 ms에만 들어갑니다 (v1.3.1부터, 그 전에는 그 자리에 앞 wake의 값이 한 번 더 찍힘). 이 값을 보내는
     펌웨어(v1.2.2)부터 채워집니다.</dd>

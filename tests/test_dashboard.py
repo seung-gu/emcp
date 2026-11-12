@@ -3,6 +3,7 @@
 from markupsafe import escape
 
 from emcp.entry import web
+from emcp.entry.dashboard import reports as dashboard_reports
 from emcp.infra import db
 from emcp.state import devices
 from helpers import new_code, post_form, register, sign_in
@@ -185,15 +186,24 @@ def test_radio_time_lands_on_the_wake_it_measured(client, accounts):
 def test_steps_land_on_the_wake_they_measured(client, accounts):
     me = accounts.add("user_me")
     _, device = register(client, me, MAC)
-    # 단계도 깨어 있던 시간처럼 다음 보고에 실려 와서 앞 행에 붙는다. 공유기 연결(3번)은 그 행의 wifi_ms 다.
+    # 단계도 깨어 있던 시간처럼 다음 보고에 실려 와서 앞 행에 붙고, 표에서는 묶어서 보인다. Wi-Fi 연결(2번)에 드는
+    # 공유기 연결은 그 행의 wifi_ms 다.
     db.reports.add_reports([
         {"received_at": "2026-11-12T10:00:00+00:00", "device_id": device, "wifi_ms": 64, "rssi": -55, "wifi_attempts": 1},
         {"received_at": "2026-11-12T10:30:00+00:00", "device_id": device, "wifi_ms": 70, "rssi": -55, "wifi_attempts": 1,
-         "prev_awake_ms": 2402, "prev_steps": {"sense": 121, "join": 64, "connect": 987, "refresh": 433}},
+         "prev_awake_ms": 2402, "prev_steps": {"sense": 121, "radio_on": 100, "join": 64, "connect": 987,
+                                               "wait": 300, "read": 40, "panel": 90, "refresh": 433}},
     ])
     sign_in(client, me)
     page = client.get("/dashboard").text
-    assert ('<td>2402</td><td class="step"></td><td class="step">121</td><td class="step"></td>'
-            '<td class="step">64</td><td class="step"></td><td class="step">987</td>') in page
-    assert '<td class="step">433</td>' in page
-    assert 'class="reports"' in page and 'aria-expanded="false"' in page   # 처음에는 접혀 있다
+    # 깨어 있던, 라디오, 시작·측정, Wi-Fi 연결(100+64), DNS, 암호화 연결, 응답(300+40), 화면(90+433), 나머지, 새 펌웨어
+    assert ('<td>2402</td><td class="step"></td><td class="step">121</td><td class="step">164</td>'
+            '<td class="step"></td><td class="step">987</td><td class="step">340</td><td class="step">523</td>'
+            '<td class="step"></td><td class="step"></td>') in page
+    assert 'class="reports"' in page and 'aria-expanded="false"' in page   # 처음에는 측정값 칸이 보인다
+
+
+def test_step_groups_cover_every_step():
+    # 보드가 보내는 단계는 표와 그래프의 묶음 중 꼭 한 곳에 들어간다.
+    grouped = [k for _, _, keys in dashboard_reports.STEP_GROUPS for k in keys]
+    assert sorted(grouped) == sorted(db.reports.STEP_KEYS)

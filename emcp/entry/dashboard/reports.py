@@ -8,8 +8,6 @@ from datetime import datetime
 from functools import cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from emcp.infra.db.reports import STEP_KEYS
-
 # RSSI 구간. 보드의 rssiLevel() (display.cpp) 과 같은 경계를 쓴다.
 RSSI_BANDS = ((-55, "강함"), (-65, "좋음"), (-75, "보통"), (-85, "약함"))
 WEAKEST = "매우 약함"
@@ -84,21 +82,32 @@ def _hhmm(r: dict) -> str:
 # 그래프로 그리는 값. 그래프마다 그 값이 있는 보고만 점으로 찍는다.
 _PLOTTED = ("battery_mv", "rssi", "awake_ms", "chip_c", "room_c", "room_rh", "nvs_used")
 
-# 한 번 깨어날 때의 단계를 표 칸과 그래프 선에 붙이는 이름. 순서는 STEP_KEYS 그대로다. 공유기 연결(join)은 그
-# 보고의 wifi_ms 로 채운다. 같은 값인데 그 보고 자신의 것이라 단계를 재기 전 보고에도 있다.
-_STEP_KO = {"sense": "시작·측정", "radio_on": "Wi-Fi 켜기", "join": "공유기 연결", "dns": "DNS",
-            "connect": "암호화 연결", "wait": "응답 대기", "read": "응답 받기", "save": "저장",
-            "radio_off": "Wi-Fi 끄기", "panel": "패널 깨우기", "draw": "그리기", "refresh": "화면 갱신",
-            "finish": "마무리", "ota": "새 펌웨어"}
-STEPS = tuple((k, _STEP_KO[k]) for k in STEP_KEYS)
+# 표 칸과 그래프 선에 보이는 단계. 보드가 보내는 단계(db.reports.STEP_KEYS) 14개를 8개로 묶어 보인다. 통신 쪽은
+# 어디서 시간이 늘었는지 가를 수 있게 나눠 두고, 화면과 짧은 정리 단계는 합친다.
+# (키, 이름, 묶는 단계). 공유기 연결(join)은 그 보고의 wifi_ms 로 채운다. 같은 값인데 그 보고 자신의 것이라 단계를
+# 재기 전 보고에도 있다.
+STEP_GROUPS = (
+    ("sense", "시작·측정", ("sense",)),
+    ("wifi", "Wi-Fi 연결", ("radio_on", "join")),
+    ("dns", "DNS", ("dns",)),
+    ("connect", "암호화 연결", ("connect",)),
+    ("answer", "응답", ("wait", "read")),
+    ("screen", "화면", ("panel", "draw", "refresh")),
+    ("rest", "나머지", ("save", "radio_off", "finish")),
+    ("ota", "새 펌웨어", ("ota",)),
+)
 # 깨어 있던 시간 그래프는 이 아래만 그린다. 새 펌웨어를 받은 wake 는 1분쯤이라, 같이 그리면 나머지가 바닥에 붙는다.
 AWAKE_MAX_MS = 10_000
 
 
 def _step_values(r: dict) -> list:
-    """그 행의 단계별 ms, STEPS 순서. 없는 단계는 None."""
-    steps = r.get("steps") or {}
-    return [r.get("wifi_ms") if k == "join" else steps.get(k) for k in STEP_KEYS]
+    """그 행의 묶은 단계별 ms, STEP_GROUPS 순서. 묶인 단계 중 있는 것만 더하고, 하나도 없으면 None."""
+    steps = {**(r.get("steps") or {}), "join": r.get("wifi_ms")}
+    values = []
+    for _, _, keys in STEP_GROUPS:
+        have = [steps[k] for k in keys if steps.get(k) is not None]
+        values.append(sum(have) if have else None)
+    return values
 
 
 def plot_data(rows: list[dict], board_id: int | None, nvs_total: int | None) -> str:
@@ -109,13 +118,13 @@ def plot_data(rows: list[dict], board_id: int | None, nvs_total: int | None) -> 
     """
     steps = [_step_values(r) for r in rows]
     series = {k: [r.get(k) for r in rows] for k in _PLOTTED}
-    series.update({f"step_{k}": [v[i] for v in steps] for i, k in enumerate(STEP_KEYS)})
+    series.update({f"step_{g[0]}": [v[i] for v in steps] for i, g in enumerate(STEP_GROUPS)})
     data = {
         "t": [int(datetime.fromisoformat(r["received_at"]).timestamp()) for r in rows],
         "fw_version": [r.get("fw_version") for r in rows],
         "series": series,
         # 선 여러 개를 한 그래프에 겹쳐 그리는 그래프: 그래프 키마다 [값 키, 이름] 목록.
-        "groups": {"awake_ms": [["awake_ms", "깨어 있던 시간"], *([f"step_{k}", ko] for k, ko in STEPS)]},
+        "groups": {"awake_ms": [["awake_ms", "깨어 있던 시간"], *([f"step_{k}", ko] for k, ko, _ in STEP_GROUPS)]},
         # 신호 세기처럼 값 자체에 뜻이 있는 그래프는 축을 고정한다. 자동으로 맞추면 평평한 구간도
         # 크게 출렁이는 것처럼 보인다. 겹쳐 그리는 그래프는 축 밖 값을 그리지 않는다.
         "fixed": {"rssi": [-100, -40], "awake_ms": [0, AWAKE_MAX_MS]},
