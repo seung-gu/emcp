@@ -15,6 +15,7 @@
   }
 
   var HOUR = 3600, DAY = 86400, HEIGHT = 180;
+  var GROUP_HEIGHT = 280;   // 선을 여러 개 겹쳐 그리는 그래프는 높게
   var GAP = 2 * HOUR;       // 보고가 이만큼 끊기면 선을 잇지 않는다. 이으면 없던 값이 있던 것처럼 보인다
   var MIN_SPAN = HOUR;      // 이보다 좁게는 확대하지 않는다
   var WEEK = ["일", "월", "화", "수", "목", "금", "토"];
@@ -61,6 +62,42 @@
     return { x: x, y: y, raw: raw, src: src };
   }
 
+  // 선 여러 개를 겹쳐 그리는 그래프(data.groups)의 점들. x 는 모든 선이 같이 쓰고, 그 보고에 값이 없는 선은
+  // null 이라 거기서 끊긴다. 고정한 축(range) 밖의 값도 null 로 빼서 그리지 않는다. 눌렀을 때 보이는 건 원래 값(raws)이다.
+  function groupPoints(keys, range) {
+    var x = [], src = [];
+    var ys = keys.map(function () { return []; }), raws = keys.map(function () { return []; });
+    for (var k = 0; k < ts.length; k++) {
+      var vals = keys.map(function (key) { var v = data.series[key][k]; return v === undefined ? null : v; });
+      if (vals.every(function (v) { return v === null; })) continue;
+      if (x.length && ts[k] - x[x.length - 1] > GAP) {
+        x.push(x[x.length - 1] + 1); src.push(-1);
+        keys.forEach(function (key, s) { ys[s].push(null); raws[s].push(null); });
+      }
+      x.push(ts[k]); src.push(k);
+      vals.forEach(function (v, s) {
+        raws[s].push(v);
+        ys[s].push(v !== null && v >= range[0] && v <= range[1] ? v : null);
+      });
+    }
+    return { x: x, ys: ys, raws: raws, src: src };
+  }
+
+  // 한 그래프의 선들. 겹쳐 그리는 그래프는 첫 선(합계)을 글자색으로, 나머지(단계)는 범주 색 7가지를 차례로
+  // 쓰고 8번째부터는 같은 색을 점선으로 다시 쓴다. 색이 7가지를 넘으면 색만으로는 구분이 안 되기 때문이다.
+  function linesFor(key, p) {
+    var group = data.groups[key];
+    if (!group) {
+      var pts = points(key);
+      return { x: pts.x, src: pts.src, ys: [pts.y], raws: [pts.raw], names: [null],
+               colors: [p.color(key)], dashes: [null] };
+    }
+    var keys = group.map(function (g) { return g[0]; }), g = groupPoints(keys, data.fixed[key]);
+    return { x: g.x, src: g.src, ys: g.ys, raws: g.raws, names: group.map(function (g) { return g[1]; }),
+             colors: keys.map(function (k, s) { return s ? p.step((s - 1) % 7) : p.fg; }),
+             dashes: keys.map(function (k, s) { return s > 7 ? [6, 4] : null; }) };
+  }
+
   function nearest(ys, i) {
     if (i === null || i === undefined) return null;
     for (var k = 0; k < ys.length; k++) {
@@ -89,7 +126,8 @@
     var v = function (name) { return s.getPropertyValue(name).trim(); };
     return { fg: s.color, bg: s.backgroundColor, axis: v("--muted"), grid: v("--line"), guide: v("--control"),
              fillAlpha: parseFloat(v("--plot-fill-alpha")) || 0.1,
-             color: function (key) { return v("--plot-" + key) || v("--accent"); } };
+             color: function (key) { return v("--plot-" + key) || v("--accent"); },
+             step: function (n) { return v("--step-" + (n + 1)); } };
   }
 
   // "#12936b" -> "rgba(18,147,107,a)". 선 아래 면은 선과 같은 색을 옅게 칠한다.
@@ -128,11 +166,21 @@
     return s;
   }
 
+  // 눌러 둔 보고에서 보이는 선들의 값 중 가장 높은 것. 상자와 표시를 그 높이에 단다.
+  function topValue(u, i) {
+    var top = null;
+    for (var s = 1; s < u.series.length; s++) {
+      var v = u.data[s][i];
+      if (u.series[s].show && v != null && (top === null || v > top)) top = v;
+    }
+    return top === null ? (u.scales.y.min + u.scales.y.max) / 2 : top;
+  }
+
   function placeTip(c) {
     var u = c.u, i = pinned.i, x = u.data[0][i];
     if (x < u.scales.x.min || x > u.scales.x.max) { tip.hidden = true; return; }
     var box = u.over.getBoundingClientRect();
-    var left = u.valToPos(x, "x"), top = u.valToPos(u.data[1][i], "y");
+    var left = u.valToPos(x, "x"), top = u.valToPos(topValue(u, i), "y");
     tip.style.left = (box.left + window.scrollX + left) + "px";
     tip.style.top = (box.top + window.scrollY + top) + "px";
     tip.classList.toggle("flip", left > box.width * 0.6);
@@ -145,10 +193,14 @@
     if (x >= u.scales.x.min && x <= u.scales.x.max) {
       var r = uPlot.pxRatio, ctx = u.ctx;
       ctx.save();
-      ctx.beginPath();
-      ctx.arc(u.valToPos(x, "x", true), u.valToPos(u.data[1][i], "y", true), 5 * r, 0, 2 * Math.PI);
-      ctx.fillStyle = c.color; ctx.fill();
-      ctx.lineWidth = 2 * r; ctx.strokeStyle = p.bg; ctx.stroke();
+      for (var s = 1; s < u.series.length; s++) {
+        var v = u.data[s][i];
+        if (!u.series[s].show || v == null) continue;
+        ctx.beginPath();
+        ctx.arc(u.valToPos(x, "x", true), u.valToPos(v, "y", true), 5 * r, 0, 2 * Math.PI);
+        ctx.fillStyle = c.colors[s - 1]; ctx.fill();
+        ctx.lineWidth = 2 * r; ctx.strokeStyle = p.bg; ctx.stroke();
+      }
       ctx.restore();
     }
     placeTip(c);
@@ -161,7 +213,10 @@
     tip.innerHTML = "";
     tip.appendChild(line(local(ts[k]), "b"));
     tip.appendChild(line("UTC " + utc(ts[k]), "dim"));
-    tip.appendChild(line(c.raw[i] + " " + c.unit));
+    c.raws.forEach(function (raw, s) {
+      if (raw[i] === null) return;
+      tip.appendChild(line((c.names[s] ? c.names[s] + " " : "") + raw[i] + " " + c.unit));
+    });
     tip.appendChild(line("펌웨어 " + (data.fw_version[k] || "알 수 없음 (버전을 안 보내던 때)")));
     if (data.mac) {
       tip.appendChild(line(data.name[k] || data.mac[k] || "이름 없는 보드", "dim"));
@@ -208,32 +263,42 @@
     tip.hidden = true;
     var p = palette();
     boxes.forEach(function (el) {
-      var key = el.dataset.key, pts = points(key);
+      var key = el.dataset.key, lines = linesFor(key, p), grouped = !!data.groups[key];
       el.innerHTML = "";
-      if (pts.y.filter(function (v) { return v !== null; }).length < 2) {
+      if (lines.src.filter(function (k) { return k >= 0; }).length < 2) {
         empty(el, "그래프를 그리려면 보고가 2건 이상 필요합니다.");
         return;
       }
-      var c = { el: el, unit: el.dataset.unit, src: pts.src, raw: pts.raw, color: p.color(key) };
+      var c = { el: el, unit: el.dataset.unit, src: lines.src, raws: lines.raws, names: lines.names,
+                colors: lines.colors, height: grouped ? GROUP_HEIGHT : HEIGHT,
+                hit: lines.src.map(function (k) { return k < 0 ? null : k; }) };
       var guides = data.guides[key] || [];
       var fixed = data.fixed[key];
       var axis = { stroke: p.axis, grid: { stroke: p.grid, width: 1 }, ticks: { stroke: p.grid, width: 1 } };
+      // 선 하나인 그래프는 선 아래 면을 옅게 칠한다. 면은 늘 아래쪽으로 채운다. 기본값은 0 쪽이라 신호세기처럼
+      // 음수인 값은 선 위가 채워진다. 겹쳐 그리는 그래프는 면이 서로 덮어서 칠하지 않고, 이름표를 붙인다.
+      var series = [{}].concat(lines.ys.map(function (y, s) {
+        return { label: lines.names[s] || "", stroke: lines.colors[s], width: 2,
+                 dash: lines.dashes[s] || undefined, spanGaps: false,
+                 fill: grouped ? undefined : tint(lines.colors[s], p.fillAlpha),
+                 fillTo: function (u) { return u.scales.y.min; },
+                 points: { size: 5, stroke: lines.colors[s], fill: p.bg } };
+      }));
       c.u = new uPlot({
-        width: el.clientWidth, height: HEIGHT,
-        legend: { show: false },
+        width: el.clientWidth, height: c.height,
+        // 겹쳐 그리는 그래프의 이름표. 누르면 그 선을 끄고 켠다.
+        legend: { show: grouped, live: false,
+                  markers: { dash: function (u, s) { return u.series[s].dash ? "dashed" : "solid"; } } },
         tzDate: zoned,                        // 눈금 위치도 날씨 위치의 자정·정시에 맞춘다
         scales: { x: { time: true, auto: false, min: view.min, max: view.max },
                   y: fixed ? { range: fixed } : {} },
-        // 면은 늘 아래쪽으로 채운다. 기본값은 0 쪽이라 신호세기처럼 음수인 값은 선 위가 채워진다.
-        series: [{}, { stroke: c.color, fill: tint(c.color, p.fillAlpha), fillTo: function (u) { return u.scales.y.min; },
-                       width: 2, spanGaps: false,
-                       points: { size: 5, stroke: c.color, fill: p.bg } }],
+        series: series,
         axes: [Object.assign({ size: 46, values: xLabels }, axis), Object.assign({ size: 56 }, axis)],
         cursor: {
           y: false,
           drag: { x: true, y: false, setScale: false },
-          dataIdx: function (u, si, i) { return si === 0 ? i : nearest(u.data[1], i); },
-          points: { size: 9, width: 2, stroke: c.color, fill: p.bg },
+          dataIdx: function (u, si, i) { return si === 0 ? i : nearest(u.data[si], i); },
+          points: { size: 9, width: 2, stroke: function (u, s) { return c.colors[s - 1]; }, fill: p.bg },
           bind: { dblclick: function () { return null; } }
         },
         hooks: {
@@ -246,14 +311,14 @@
           drawSeries: [function (u) { drawGuides(u, guides, p); }],
           draw: [function (u) { drawPin(c, p); }]
         }
-      }, [pts.x, pts.y], el);
+      }, [lines.x].concat(lines.ys), el);
 
       var over = c.u.over, downX = 0;
       over.addEventListener("mousedown", function (e) { downX = e.clientX; });
       over.addEventListener("click", function (e) {
         if (Math.abs(e.clientX - downX) > 3) return;      // 끌어서 구간을 고른 것
         var x = e.clientX - over.getBoundingClientRect().left;
-        var i = nearest(c.u.data[1], c.u.posToIdx(x));
+        var i = nearest(c.hit, c.u.posToIdx(x));
         if (i === null) return;
         if (pinned && pinned.chart === c && pinned.i === i) unpin(); else pin(c, i);
       });
@@ -289,7 +354,7 @@
   });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") unpin(); });
   window.addEventListener("resize", function () {
-    charts.forEach(function (c) { c.u.setSize({ width: c.el.clientWidth, height: HEIGHT }); });
+    charts.forEach(function (c) { c.u.setSize({ width: c.el.clientWidth, height: c.height }); });
   });
   if (window.matchMedia) {
     window.addEventListener("themechange", build);          // 다크 모드 스위치를 바꿨을 때 (theme.js)

@@ -30,8 +30,8 @@ Sign-in goes through WorkOS AuthKit, and every person sees only their own boards
 `/dashboard` after sign-in (Korean UI):
 
 - Boards: rename, change the weather location, share by email, unregister, add one with its code
-- Charts: battery, Wi-Fi signal, time awake, room temperature and humidity, chip temperature, NVS use. Ranges from 6 hours to 7 days or everything, drag to zoom, times in the board's local time
-- Tables: the last 50 reports, and reports the board could not send at the time
+- Charts: battery, Wi-Fi signal, time awake with a line for each step of the wake, room temperature and humidity, chip temperature, NVS use. Ranges from 6 hours to 7 days or everything, drag to zoom, times in the board's local time
+- Tables: the last 50 reports, whose awake time opens into its steps, and reports the board could not send at the time
 
 ## Stack
 

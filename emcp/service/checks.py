@@ -75,8 +75,18 @@ def tag(v) -> str | None:
     return v or None
 
 
-# db/reports.py 의 항목 타입마다 들어온 값을 거르는 함수.
-CLEAN = {int: to_int, float: to_float, bool: to_bool, str: tag}
+def steps(v) -> dict | None:
+    """지난 wake 의 단계별 시간(prev_steps). 아는 단계 이름에 실린 숫자만 남긴다. 음수나 한 시간이 넘는 값은
+    잘못 잰 것이라 버린다."""
+    if not isinstance(v, dict):
+        return None
+    out = {k: n for k in db.reports.STEP_KEYS
+           if (n := to_int(v.get(k))) is not None and 0 <= n <= 3_600_000}
+    return out or None
+
+
+# db/reports.py 의 항목 타입마다 들어온 값을 거르는 함수. dict 인 항목은 prev_steps 하나뿐이다.
+CLEAN = {int: to_int, float: to_float, bool: to_bool, str: tag, dict: steps}
 
 
 def clean_entry(e: dict) -> dict:

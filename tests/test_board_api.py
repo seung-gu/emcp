@@ -151,3 +151,16 @@ def test_report_keeps_the_last_wakes_radio_time(client, accounts):
     token, _ = register(client, accounts.add("user_me"), MAC)
     report(client, token, MAC, prev_radio_ms=812)
     assert buffered()[-1]["prev_radio_ms"] == 812
+
+
+def test_report_keeps_the_last_wakes_steps(client, accounts):
+    token, _ = register(client, accounts.add("user_me"), MAC)
+    # 모르는 단계, 숫자가 아닌 값, 음수는 버리고 아는 단계의 숫자만 남긴다.
+    report(client, token, MAC, prev_steps={"sense": 120, "connect": "987", "tls": 5, "dns": "x", "draw": -3})
+    assert buffered()[-1]["prev_steps"] == {"sense": 120, "connect": 987}
+
+
+def test_report_without_usable_steps_has_none(client, accounts):
+    token, _ = register(client, accounts.add("user_me"), MAC)
+    report(client, token, MAC, prev_steps=[1, 2, 3])
+    assert "prev_steps" not in buffered()[-1]

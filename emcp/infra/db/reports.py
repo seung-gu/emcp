@@ -17,7 +17,11 @@ REPORT_FIELDS = {
     "battery_mv": int, "chip_c": float, "room_c": float, "room_rh": float,
     "wifi_ms": int, "rssi": int, "wifi_attempts": int,
     "reset_reason": int, "prev_awake_ms": int, "prev_radio_ms": int, "nvs_free": int, "nvs_total": int,
+    "prev_steps": dict,
 }
+# prev_steps 의 단계, 한 번 깨어날 때 일어나는 순서대로. 펌웨어 src/weather/steps.cpp 의 이름과 같다.
+STEP_KEYS = ("sense", "radio_on", "join", "dns", "connect", "wait", "read", "save", "radio_off",
+             "panel", "draw", "refresh", "finish", "ota")
 # 서버가 그 보고에 돌려준 날씨. 조회에 실패한 보고는 전부 비어 있다.
 WEATHER_FIELDS = ("city", "lat", "lon", "out_temp_c", "out_humidity", "out_temp_max_c",
                   "out_temp_min_c", "weather_code", "wind_kmh", "pop", "timezone")
@@ -54,7 +58,8 @@ def add_reports(rows: list[dict]) -> dict:
                 f" VALUES ({', '.join(['%s'] * len(report_cols))})"
                 " ON CONFLICT (device_id, received_at) DO NOTHING RETURNING id",
                 [(device, datetime.fromisoformat(r["received_at"]),
-                  *(r.get(c) for c in report_cols[2:])) for r, device in zip(rows, row_devices)],
+                  *(Jsonb(v) if isinstance(v := r.get(c), dict) else v for c in report_cols[2:]))
+                 for r, device in zip(rows, row_devices)],
                 returning=True,
             )
             ids = []

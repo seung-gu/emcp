@@ -58,6 +58,7 @@ emcp가 Neon에 두는 테이블과 그 관계, DB 밖에 있는 데이터를 �
 | 보드 상태 | `reset_reason` | 왜 깨어났는지 (8 타이머, 1 전원 들어옴, 3 재시작, 9 전압 저하) |
 | | `prev_awake_ms` | 지난번에 깨어 있던 시간 (ms). 이번 시간은 보고하는 순간에 아직 끝나지 않아서 잴 수 없음 |
 | | `prev_radio_ms` | 지난번에 라디오가 켜져 있던 시간 (ms). Wi-Fi 연결부터 보고, 끊기까지. `prev_awake_ms`와 같은 이유로 지난번 값 |
+| | `prev_steps` | 지난번 wake를 단계로 나눈 시간 (JSON, `{"connect": 987, ...}`). 다 더하면 `prev_awake_ms`. 단계 이름은 `db/reports.py`의 `STEP_KEYS`, 뜻은 대시보드 표 설명에 있음. 펌웨어 v1.4.0부터 |
 | | `nvs_free`, `nvs_total` | 보드 저장 공간의 남은 칸과 전체 칸 |
 | 날씨 | `city`, `lat`, `lon` | 그때 날씨를 조회한 도시와 좌표 |
 | | `timezone` | 그 도시의 시간대 (예: `Europe/Berlin`) |

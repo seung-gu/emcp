@@ -18,7 +18,7 @@ _env = Environment(loader=FileSystemLoader(_HERE / "templates"), autoescape=True
 # 빈 값은 빈칸으로. 템플릿에 None 을 넣으면 'None' 이 찍힌다.
 _env.filters["cell"] = lambda v: "" if v is None else v
 _STATIC = {name: Markup((_HERE / "static" / name).read_text(encoding="utf-8"))
-           for name in ("page.css", "plots.js", "notice.js", "places.js", "theme.js")}
+           for name in ("page.css", "plots.js", "notice.js", "places.js", "theme.js", "table.js")}
 
 
 def render(rows: list[dict], board_id: int | None = None, boards: list[dict] = (), pending: list[dict] = (),
@@ -64,6 +64,8 @@ def render(rows: list[dict], board_id: int | None = None, boards: list[dict] = (
         tz=rows[-1]["tz"] if rows else reports.DEFAULT_TZ,
         weakest=reports.WEAKEST,
         table=reports.table_rows(recent),
+        steps=reports.STEPS,
+        awake_max=reports.AWAKE_MAX_MS,
         logs=reports.log_blocks(recent),
         plot_data=Markup(reports.plot_data(rows, board_id, nvs_total)),
     )

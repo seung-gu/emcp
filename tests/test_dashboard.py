@@ -178,5 +178,22 @@ def test_radio_time_lands_on_the_wake_it_measured(client, accounts):
     ])
     sign_in(client, me)
     page = client.get("/dashboard").text
-    assert "<td>64</td><td>913</td>" in page and "<td>2402</td>" in page   # Wi-Fi ms 바로 뒤 칸
+    assert '<td>2402</td><td class="step">913</td>' in page   # 깨어 있던 ms 바로 뒤, 접혀 있는 칸
     assert "401" not in page
+
+
+def test_steps_land_on_the_wake_they_measured(client, accounts):
+    me = accounts.add("user_me")
+    _, device = register(client, me, MAC)
+    # 단계도 깨어 있던 시간처럼 다음 보고에 실려 와서 앞 행에 붙는다. 공유기 연결(3번)은 그 행의 wifi_ms 다.
+    db.reports.add_reports([
+        {"received_at": "2026-11-12T10:00:00+00:00", "device_id": device, "wifi_ms": 64, "rssi": -55, "wifi_attempts": 1},
+        {"received_at": "2026-11-12T10:30:00+00:00", "device_id": device, "wifi_ms": 70, "rssi": -55, "wifi_attempts": 1,
+         "prev_awake_ms": 2402, "prev_steps": {"sense": 121, "join": 64, "connect": 987, "refresh": 433}},
+    ])
+    sign_in(client, me)
+    page = client.get("/dashboard").text
+    assert ('<td>2402</td><td class="step"></td><td class="step">121</td><td class="step"></td>'
+            '<td class="step">64</td><td class="step"></td><td class="step">987</td>') in page
+    assert '<td class="step">433</td>' in page
+    assert 'class="reports"' in page and 'aria-expanded="false"' in page   # 처음에는 접혀 있다

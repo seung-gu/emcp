@@ -44,10 +44,12 @@
 <div class="plot" data-key="rssi" data-unit="dBm"></div>
 <p class="note">0에 가까울수록 신호가 셉니다. 맨 아래 점선보다 낮으면 '{{ weakest }}'입니다.</p>
 
-<h2>깨어 있던 시간</h2>
+<h2>깨어 있던 시간과 단계</h2>
 <div class="plot" data-key="awake_ms" data-unit="ms"></div>
 <p class="note">배터리는 주로 깨어 있는 동안 닳습니다. 자는 동안은 마이크로암페어 단위지만, 깨어
-  있는 동안은 100 mA쯤 씁니다.</p>
+  있는 동안은 100 mA쯤 씁니다. 글자와 같은 색의 선이 깨어 있던 시간 전체이고, 나머지는 그 시간을 나눈
+  단계입니다 (단계 뜻은 아래 최근 보고 표의 설명에 있습니다). 이름표를 누르면 그 선을 끄고 켭니다. 축은 0~{{ awake_max // 1000 }}초로
+  고정이고, 새 펌웨어를 받은 wake처럼 그보다 긴 값은 그리지 않습니다. 그 값은 점을 누르거나 표에서 보세요.</p>
 
 <h2>실내 온도</h2>
 <div class="plot" data-key="room_c" data-unit="°C"></div>
@@ -71,41 +73,56 @@
   알아채기 어렵습니다. 축은 0부터 전체 칸 수까지 고정이라 선의 높이가 곧 사용률입니다.</p>
 
 <h2>최근 보고</h2>
-<table>
-  <tr><th>시각 (현지)</th>{% if not board_id %}<th>보드</th>{% endif %}<th>배터리 mV</th><th>Wi-Fi ms</th><th>라디오 ms</th><th>RSSI</th><th>강도</th>
-      <th>칩 °C</th><th>실내 °C</th><th>습도 %</th><th>I2C</th>
-      <th>깨어 있던 ms</th><th>리셋 사유</th><th>못 보낸 보고</th></tr>
+<div class="scroll">
+<table class="reports" id="reports">
+  <tr><th>시각 (현지)</th>{% if not board_id %}<th class="text">보드</th>{% endif %}<th>배터리 mV</th><th>RSSI</th><th class="text">강도</th>
+      <th>칩 °C</th><th>실내 °C</th><th>습도 %</th><th class="text">I2C</th>
+      <th><button type="button" class="more" id="steps-toggle" aria-expanded="false" aria-controls="reports"
+        title="라디오 ms와 단계별 ms 펼치기">깨어 있던 ms</button></th>
+      <th class="step">라디오 ms</th>{% for _, name in steps %}<th class="step">{{ loop.index }} {{ name }}</th>{% endfor %}
+      <th class="text">리셋 사유</th><th>못 보낸 보고</th></tr>
   {% for r in table %}
-  <tr><td>{{ r.time }}<span class="dim">{{ r.zone }}</span></td>{% if not board_id %}<td>{{ board(r.name, r.mac) }}</td>{% endif %}<td>{{ r.battery_mv|cell }}</td><td>{{ r.wifi_ms|cell }}</td><td>{{ r.radio_ms|cell }}</td><td>{{ r.rssi|cell }}</td><td>{{ r.strength }}</td><td>{{ r.chip_c|cell }}</td><td>{{ r.room_c|cell }}</td><td>{{ r.room_rh|cell }}</td><td>{% if r.i2c is none %}<span class="dim">?</span>{% else %}{{ r.i2c }}{% endif %}</td><td>{{ r.awake_ms|cell }}</td><td>{{ r.reset }}</td><td>{{ r.logged }}</td></tr>
+  <tr><td>{{ r.time }}<span class="dim">{{ r.zone }}</span></td>{% if not board_id %}<td class="text">{{ board(r.name, r.mac) }}</td>{% endif %}<td>{{ r.battery_mv|cell }}</td><td>{{ r.rssi|cell }}</td><td class="text">{{ r.strength }}</td><td>{{ r.chip_c|cell }}</td><td>{{ r.room_c|cell }}</td><td>{{ r.room_rh|cell }}</td><td class="text">{% if r.i2c is none %}<span class="dim">?</span>{% else %}{{ r.i2c }}{% endif %}</td><td>{{ r.awake_ms|cell }}</td><td class="step">{{ r.radio_ms|cell }}</td>{% for v in r.steps %}<td class="step">{{ v|cell }}</td>{% endfor %}<td class="text">{{ r.reset }}</td><td>{{ r.logged }}</td></tr>
   {% else %}
-  <tr><td colspan="{{ 13 if board_id else 14 }}" class="empty">아직 보고가 없습니다.</td></tr>
+  <tr><td colspan="{{ steps|length + (12 if board_id else 13) }}" class="empty">아직 보고가 없습니다.</td></tr>
   {% endfor %}
 </table>
+</div>
 <dl class="legend">
-  <dt>한 번 깨어날 때의 순서</dt><dd>
+  <dt>깨어 있던 ms</dt><dd>한 번 깨어나서 펌웨어가 시작한 때부터 잠들기 직전까지입니다 (그 전의 부트로더 시간은 빠짐).
+    이 시간은 보고를 보낸 뒤에야 끝나서 보드는 다음 보고에 실어 보내고, 여기서는 그 값을 원래 행에 붙여 보여 줍니다.
+    그래서 맨 윗줄은 다음 보고가 올 때까지 비어 있고, 중간에 못 보낸 보고가 있던 자리도 비어 있습니다. 제목을
+    누르면 라디오 ms와 단계별 시간이 펼쳐집니다.</dd>
+  <dt>단계</dt><dd>깨어 있던 시간을 일어나는 순서대로 나눈 것입니다. 한 단계는 앞 단계가 끝난 때부터 그 단계가 끝날
+    때까지라서, 다 더하면 깨어 있던 ms가 됩니다. 깨어 있던 ms처럼 다음 보고에 실려 와서 원래 행에 붙고, 이 값을 보내는
+    펌웨어(v1.4.0)부터 채워집니다. 그 전 보고에는 3번(예전 표의 Wi-Fi ms)만 있습니다.
     <ol>
-      <li>펌웨어 시작. <b>깨어 있던 ms</b>가 여기서부터 잽니다 (그 전의 부트로더 시간은 빠짐).</li>
-      <li>배터리 전압, 칩 온도, 실내 온습도 측정.</li>
-      <li>Wi-Fi 켜기. <b>라디오 ms</b>가 여기서부터 잽니다.</li>
-      <li>공유기에 연결하고 IP 주소 받기. 이 단계만 잰 것이 <b>Wi-Fi ms</b>입니다. 3초 안에 안 되면 실패입니다.</li>
-      <li>서버에 HTTPS로 보고를 보내고, 답으로 온 날씨를 저장.</li>
-      <li>Wi-Fi 끄기. <b>라디오 ms</b>는 여기까지입니다.</li>
-      <li>화면 그리기 (평소에는 부분 갱신, 12시간마다와 재시작 직후에는 전체 갱신).</li>
-      <li>새 펌웨어가 있으면 Wi-Fi를 다시 켜서 받기 (약 1분).</li>
-      <li>잠들기 직전. <b>깨어 있던 ms</b>는 여기까지입니다.</li>
-    </ol>
-    그래서 Wi-Fi ms는 라디오 ms 안에, 라디오 ms는 깨어 있던 ms 안에 들어 있습니다. 서로 더하지 말고 빼서 보세요.</dd>
-  <dt>Wi-Fi ms</dt><dd>4단계만입니다. 공유기에 연결을 시작해서 연결되고 IP 주소를 받기까지입니다. 그 보고를 보낸 wake
-    자신의 값이라 그 행에 바로 들어 있습니다.</dd>
-  <dt>라디오 ms</dt><dd>3~6단계입니다. Wi-Fi를 켠 순간부터 끈 순간까지로, Wi-Fi ms를 포함합니다. 라디오 ms에서
-    Wi-Fi ms를 빼면 대부분 서버와 HTTPS로 주고받은 시간(5단계)입니다. 라디오가 켜져 있는 동안 100 mA쯤 쓰니
-    배터리가 가장 많이 나가는 구간입니다. 깨어 있던 ms처럼 다음 보고에 실려 와서 원래 행에 붙습니다. 새 펌웨어를
-    받은 wake도 3~6단계만 잽니다. 다운로드(8단계)는 깨어 있던 ms에만 들어갑니다 (v1.3.1부터, 그 전에는 그 자리에
-    앞 wake의 값이 한 번 더 찍힘). 이 값을 보내는 펌웨어(v1.2.2)부터 채워집니다.</dd>
-  <dt>깨어 있던 ms</dt><dd>1~9단계 전부입니다. 깨어 있던 ms에서 라디오 ms를 빼면 시작 준비, 측정, 화면 그리기(1, 2, 7단계)가
-    남고, 새 펌웨어를 받은 wake에는 다운로드(8단계)도 들어갑니다. 이 시간은 보고를 보낸 뒤에야 끝나서 보드는
-    다음 보고에 실어 보내고, 여기서는 그 값을 원래 행에 붙여 보여 줍니다. 그래서 맨 윗줄은 다음 보고가 올
-    때까지 비어 있고, 중간에 못 보낸 보고가 있던 자리도 비어 있습니다.</dd>
+      <li><b>시작·측정</b>: 펌웨어 시작부터 Wi-Fi를 켜기 직전까지. 배터리 전압, 칩 온도, 실내 온습도를 재고 Wi-Fi 시도
+        횟수를 적습니다.</li>
+      <li><b>Wi-Fi 켜기</b>: 라디오를 켜는 시간입니다.</li>
+      <li><b>공유기 연결</b>: 공유기에 연결하고 IP 주소를 받기까지입니다. 3초 안에 안 되면 실패입니다. 그 보고를 보낸 wake
+        자신의 값이라 단계 중 이것만 그 행에 바로 들어 있습니다.</li>
+      <li><b>DNS</b>: 서버 이름으로 주소를 찾는 시간입니다.</li>
+      <li><b>암호화 연결</b>: 서버와 연결을 맺고 HTTPS 암호화를 여는 시간입니다. 서버 인증서 확인이 들어 있고, 보드와 서버
+        사이를 여러 번 오가는 단계라 길이 느려지면 크게 늡니다.</li>
+      <li><b>응답 대기</b>: 보고를 만들어 보내고 서버의 답이 오기 시작할 때까지입니다. 서버가 처리하는 시간(날씨 조회
+        포함)도 여기 들어갑니다.</li>
+      <li><b>응답 받기</b>: 답으로 온 날씨를 끝까지 받고 연결을 닫기까지입니다.</li>
+      <li><b>저장</b>: 받은 날씨를 저장 공간에 적고 못 보낸 보고를 지우는 시간입니다. 서버에 닿지 못한 wake는 실패 기록을
+        적는 시간입니다.</li>
+      <li><b>Wi-Fi 끄기</b>: 라디오를 끄는 시간입니다.</li>
+      <li><b>패널 깨우기</b>: 화면 패널을 켜고 초기화하는 시간입니다.</li>
+      <li><b>그리기</b>: 보여 줄 화면을 메모리에 그리는 시간입니다.</li>
+      <li><b>화면 갱신</b>: 그린 화면을 패널에 보내고 갱신이 끝날 때까지입니다. 평소에는 부분 갱신이고, 12시간마다와
+        재시작 직후에는 오래 걸리는 전체 갱신입니다.</li>
+      <li><b>마무리</b>: 화면을 그린 뒤 잠들기 직전까지 남은 일입니다.</li>
+      <li><b>새 펌웨어</b>: 서버의 답에 새 펌웨어가 있는지 보고, 있으면 Wi-Fi를 다시 켜서 받는 시간입니다 (약 1분).
+        없으면 거의 0입니다.</li>
+    </ol></dd>
+  <dt>라디오 ms</dt><dd>Wi-Fi를 켠 순간부터 끈 순간까지, 단계로는 2~9번을 더한 것입니다. 라디오가 켜져 있는 동안
+    100 mA쯤 쓰니 배터리가 가장 많이 나가는 구간입니다. 새 펌웨어를 받은 wake도 이 구간만 잽니다. 다운로드는 깨어
+    있던 ms에만 들어갑니다 (v1.3.1부터, 그 전에는 그 자리에 앞 wake의 값이 한 번 더 찍힘). 이 값을 보내는
+    펌웨어(v1.2.2)부터 채워집니다.</dd>
   <dt>리셋 사유</dt><dd>보드가 이번에 어떻게 켜졌는지입니다. 딥슬립 타이머로 정상적으로 깨어났으면
     비워 두고, 다른 일이 있었을 때만 채웁니다. <b>전원투입</b>: 전원이 새로 들어옴 (USB 연결,
     배터리 재장착). <b>외부핀</b>: RESET 버튼. <b>SW재시작</b>: Wi-Fi 설정을 저장했거나 새 펌웨어를
@@ -136,5 +153,7 @@
 {{ static["notice.js"] }}</script>
 <script>
 {{ static["places.js"] }}</script>
+<script>
+{{ static["table.js"] }}</script>
 </body>
 </html>

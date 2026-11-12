@@ -166,4 +166,7 @@ MIGRATIONS = [
     # 보드가 업데이트를 몇 번 받아 보고도 설치하지 못해 포기하면(보고의 ota_failed) 서버가 자동 업데이트를 끄고
     # 그 버전(태그 이름, 모르면 짧은 커밋)을 적어 둔다. 대시보드가 꺼진 이유로 보여 주고, 주인이 다시 켜면 지운다.
     "ALTER TABLE devices ADD COLUMN update_failed TEXT",
+    # 지난번 wake 가 단계마다 쓴 시간(ms). 단계 이름은 db/reports.py 의 STEP_KEYS 이고, 다 더하면 prev_awake_ms 다.
+    # 펌웨어가 단계를 나누거나 더할 수 있어서 단계마다 칸을 만들지 않고 JSON 하나로 둔다.
+    "ALTER TABLE reports ADD COLUMN prev_steps JSONB",
 ]

@@ -8,6 +8,8 @@ from datetime import datetime
 from functools import cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from emcp.infra.db.reports import STEP_KEYS
+
 # RSSI 구간. 보드의 rssiLevel() (display.cpp) 과 같은 경계를 쓴다.
 RSSI_BANDS = ((-55, "강함"), (-65, "좋음"), (-75, "보통"), (-85, "약함"))
 WEAKEST = "매우 약함"
@@ -82,6 +84,22 @@ def _hhmm(r: dict) -> str:
 # 그래프로 그리는 값. 그래프마다 그 값이 있는 보고만 점으로 찍는다.
 _PLOTTED = ("battery_mv", "rssi", "awake_ms", "chip_c", "room_c", "room_rh", "nvs_used")
 
+# 한 번 깨어날 때의 단계를 표 칸과 그래프 선에 붙이는 이름. 순서는 STEP_KEYS 그대로다. 공유기 연결(join)은 그
+# 보고의 wifi_ms 로 채운다. 같은 값인데 그 보고 자신의 것이라 단계를 재기 전 보고에도 있다.
+_STEP_KO = {"sense": "시작·측정", "radio_on": "Wi-Fi 켜기", "join": "공유기 연결", "dns": "DNS",
+            "connect": "암호화 연결", "wait": "응답 대기", "read": "응답 받기", "save": "저장",
+            "radio_off": "Wi-Fi 끄기", "panel": "패널 깨우기", "draw": "그리기", "refresh": "화면 갱신",
+            "finish": "마무리", "ota": "새 펌웨어"}
+STEPS = tuple((k, _STEP_KO[k]) for k in STEP_KEYS)
+# 깨어 있던 시간 그래프는 이 아래만 그린다. 새 펌웨어를 받은 wake 는 1분쯤이라, 같이 그리면 나머지가 바닥에 붙는다.
+AWAKE_MAX_MS = 10_000
+
+
+def _step_values(r: dict) -> list:
+    """그 행의 단계별 ms, STEPS 순서. 없는 단계는 None."""
+    steps = r.get("steps") or {}
+    return [r.get("wifi_ms") if k == "join" else steps.get(k) for k in STEP_KEYS]
+
 
 def plot_data(rows: list[dict], board_id: int | None, nvs_total: int | None) -> str:
     """그래프에 쓸 값을 열 단위 JSON 으로 만든다. 그래프는 브라우저가 그린다. 구간을 끌어 고르고
@@ -89,13 +107,18 @@ def plot_data(rows: list[dict], board_id: int | None, nvs_total: int | None) -> 
 
     시각은 epoch 초라서 x축이 실제 시각을 따른다. 보고가 끊긴 구간은 비어 보인다.
     """
+    steps = [_step_values(r) for r in rows]
+    series = {k: [r.get(k) for r in rows] for k in _PLOTTED}
+    series.update({f"step_{k}": [v[i] for v in steps] for i, k in enumerate(STEP_KEYS)})
     data = {
         "t": [int(datetime.fromisoformat(r["received_at"]).timestamp()) for r in rows],
         "fw_version": [r.get("fw_version") for r in rows],
-        "series": {k: [r.get(k) for r in rows] for k in _PLOTTED},
+        "series": series,
+        # 선 여러 개를 한 그래프에 겹쳐 그리는 그래프: 그래프 키마다 [값 키, 이름] 목록.
+        "groups": {"awake_ms": [["awake_ms", "깨어 있던 시간"], *([f"step_{k}", ko] for k, ko in STEPS)]},
         # 신호 세기처럼 값 자체에 뜻이 있는 그래프는 축을 고정한다. 자동으로 맞추면 평평한 구간도
-        # 크게 출렁이는 것처럼 보인다.
-        "fixed": {"rssi": [-100, -40]},
+        # 크게 출렁이는 것처럼 보인다. 겹쳐 그리는 그래프는 축 밖 값을 그리지 않는다.
+        "fixed": {"rssi": [-100, -40], "awake_ms": [0, AWAKE_MAX_MS]},
         "guides": {"rssi": [[g, name] for g, name in RSSI_BANDS]},
         # 그래프 축의 시간대. 가장 최근 보고의 위치를 따른다. 표는 줄마다 자기 시간대로 보여 준다.
         "tz": rows[-1]["tz"] if rows else DEFAULT_TZ,
@@ -182,7 +205,8 @@ def attach_awake(rows: list[dict]) -> None:
     당기면 남의 wake 시간을 붙이게 된다. MAC 을 보내지 않던 옛 보고는 보드 번호 하나에 모여 있어 한 묶음으로
     처리하는데, 그 구간에 두 대가 섞여 있었다면 그 값은 바로잡을 수 없다.
 
-    prev_radio_ms(지난 wake 에서 라디오가 켜져 있던 시간)도 같은 이유로 같은 규칙으로 당겨 radio_ms 로 붙인다."""
+    prev_radio_ms(지난 wake 에서 라디오가 켜져 있던 시간)와 prev_steps(단계별 시간)도 같은 이유로 같은 규칙으로
+    당겨 radio_ms, steps 로 붙인다."""
     by_board: dict = {}
     for r in rows:
         by_board.setdefault(r.get("device_id"), []).append(r)
@@ -194,6 +218,8 @@ def attach_awake(rows: list[dict]) -> None:
                 cur["awake_ms"] = v
             if (v := nxt.get("prev_radio_ms")):
                 cur["radio_ms"] = v
+            if (v := nxt.get("prev_steps")):
+                cur["steps"] = v
 
 
 def attach_nvs(rows: list[dict]) -> int | None:
@@ -231,6 +257,7 @@ def table_rows(recent: list[dict]) -> list[dict]:
             "rssi": r.get("rssi"), "strength": rssi_label(r["rssi"]),
             "chip_c": r.get("chip_c"), "room_c": r.get("room_c"), "room_rh": r.get("room_rh"),
             "i2c": _i2c_label(r), "awake_ms": r.get("awake_ms"), "radio_ms": r.get("radio_ms"),
+            "steps": _step_values(r),
             "reset": _reset_label(r.get("reset_reason")),
             "logged": len(r.get("log") or []) or "",
         })
