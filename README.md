@@ -115,12 +115,15 @@ A registered board's request body is that wake's state report. It rides on the w
 - 429 (rate limit) and 503 (database down) mean the server could not check the board, so the board keeps its token.
 - Values are plain numbers; the board adds `°C` and `km/h`.
 - Outdoor weather goes out under both the old field names (`temp_c`, ...) and the new ones (`out_temp_c`, ...), for old and new firmware.
+- `forecast` is the weather 6 and 12 hours on, with the clock time rather than "+6h", so a screen left standing offline still reads right. When it cannot be worked out the key is left out and the rest of the answer is unchanged.
 
 ```json
 {"city": "뮌헨", "temp_c": 19, "cond": "구름 조금", "wind_kmh": 4,
  "humidity": 61, "temp_max_c": 24, "temp_min_c": 17, "pop": 25,
  "stamp": "Fri 14:30", "out_temp_c": 19, "out_humidity": 61,
- "out_temp_max_c": 24, "out_temp_min_c": 17}
+ "out_temp_max_c": 24, "out_temp_min_c": 17,
+ "forecast": [{"time": "20:00", "out_temp_c": 16, "cond": "약한 비"},
+              {"time": "02:00", "out_temp_c": 13, "cond": "흐림"}]}
 ```
 
 A failed weather lookup returns HTTP 500 with only `{"city": ...}`. The firmware checks the status code first, so this fallback never reaches the screen.

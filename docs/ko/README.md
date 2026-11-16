@@ -126,12 +126,15 @@ ESP32 e-ink 날씨 보드용 서버.
 - 429(횟수 제한), 503(DB 장애): 서버가 보드를 확인하지 못한 경우라 토큰 유지
 - 수치는 숫자로만 전송. `°C`, `km/h`는 기기 쪽에서 표시
 - 바깥 날씨는 옛 펌웨어용 이름(`temp_c` 등)과 새 펌웨어용 이름(`out_temp_c` 등)으로 함께 전송
+- `forecast`는 6시간 뒤와 12시간 뒤 날씨. 연결이 끊긴 채 남은 화면에서도 맞도록 "+6h" 대신 시각으로 전송. 만들지 못하면 이 키만 빠지고 나머지 응답은 그대로
 
 ```json
 {"city": "뮌헨", "temp_c": 19, "cond": "구름 조금", "wind_kmh": 4,
  "humidity": 61, "temp_max_c": 24, "temp_min_c": 17, "pop": 25,
  "stamp": "Fri 14:30", "out_temp_c": 19, "out_humidity": 61,
- "out_temp_max_c": 24, "out_temp_min_c": 17}
+ "out_temp_max_c": 24, "out_temp_min_c": 17,
+ "forecast": [{"time": "20:00", "out_temp_c": 16, "cond": "약한 비"},
+              {"time": "02:00", "out_temp_c": 13, "cond": "흐림"}]}
 ```
 
 - 날씨 조회 실패: 날씨 키 없이 `{"city": "뮌헨"}`만 담아 HTTP 500

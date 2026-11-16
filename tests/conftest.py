@@ -8,6 +8,7 @@
 - 보고 버퍼: 임시 폴더.
 """
 
+import copy
 import glob
 import os
 import tempfile
@@ -57,9 +58,15 @@ from emcp.state import buffer, devices  # noqa: E402
 
 # --- open-meteo ---
 
+# 시간별 값은 현지 자정부터 이틀 치. 지금(14:15) 칸은 14번이고, 6시간 뒤(20:00)는 비, 12시간 뒤(다음 날 02:00)는 흐림
+HOURS = [f"2026-11-{16 + i // 24}T{i % 24:02d}:00" for i in range(48)]
 FORECAST = {
-    "current": {"temperature_2m": 10.4, "weather_code": 0, "wind_speed_10m": 5.2, "relative_humidity_2m": 50},
-    "daily": {"temperature_2m_max": [12.6], "temperature_2m_min": [3.1], "precipitation_probability_max": [10]},
+    "current": {"time": "2026-11-16T14:15", "temperature_2m": 10.4, "weather_code": 0, "wind_speed_10m": 5.2,
+                "relative_humidity_2m": 50},
+    "daily": {"temperature_2m_max": [12.6, 9.0], "temperature_2m_min": [3.1, 1.0],
+              "precipitation_probability_max": [10, 0]},
+    "hourly": {"time": HOURS, "temperature_2m": [i / 2 for i in range(48)],
+               "weather_code": [61 if i == 20 else 3 if i == 26 else 0 for i in range(48)]},
     "utc_offset_seconds": 3600,
     "timezone": "Europe/Berlin",
 }
@@ -74,12 +81,13 @@ class OpenMeteo:
 
     def __init__(self):
         self.down = False
+        self.forecast = copy.deepcopy(FORECAST)   # 테스트가 고쳐도 다음 테스트는 원래 값을 받는다
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         if self.down:
             return httpx.Response(500)
         if request.url.host == "api.open-meteo.com":
-            return httpx.Response(200, json=FORECAST)
+            return httpx.Response(200, json=self.forecast)
         if request.url.host == "geocoding-api.open-meteo.com":
             return httpx.Response(200, json=PLACES)
         return httpx.Response(404)

@@ -19,6 +19,9 @@ WMO_KO = {
 
 WEEKDAY = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
+# 화면의 예보 줄에 오르는 시각. 지금부터 몇 시간 뒤인지
+FORECAST_HOURS = (6, 12)
+
 
 def _stamp(utc_offset_seconds: int) -> str:
     """조회 위치의 현지 시각을 'Fri 14:30' 으로. 기기가 그대로 화면에 찍는다.
@@ -29,6 +32,20 @@ def _stamp(utc_offset_seconds: int) -> str:
     """
     t = datetime.now(timezone.utc) + timedelta(seconds=utc_offset_seconds)
     return f"{WEEKDAY[t.weekday()]} {t.hour:02d}:{t.minute:02d}"
+
+
+def _forecast(data: dict) -> list[dict]:
+    """지금부터 FORECAST_HOURS 뒤의 기온과 날씨. 기기가 화면의 예보 줄에 그린다.
+
+    시각은 '+6h' 가 아니라 '20:00' 으로 보낸다. 연결이 끊긴 동안 기기는 마지막 응답을 그대로 보여 주는데,
+    그때도 맞는 값이어야 해서다. 시간별 값은 현지 자정부터 이틀 치라서, 지금 시각이 든 칸을 찾아 거기서 센다.
+    """
+    hourly = data["hourly"]
+    now = hourly["time"].index(data["current"]["time"][:13] + ":00")
+    return [{"time": hourly["time"][now + h][11:16],
+             "out_temp_c": round(hourly["temperature_2m"][now + h]),
+             "cond": WMO_KO.get(hourly["weather_code"][now + h], "알수없음")}
+            for h in FORECAST_HOURS]
 
 
 async def board_body(loc: dict) -> tuple[dict, int, dict]:
@@ -45,7 +62,9 @@ async def board_body(loc: dict) -> tuple[dict, int, dict]:
            f"?latitude={loc['lat']}&longitude={loc['lon']}"
            "&current=temperature_2m,weather_code,wind_speed_10m,relative_humidity_2m"
            "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max"
-           "&forecast_days=1&timezone=auto")  # 위치가 바뀌므로 현지 타임존을 자동으로 잡는다
+           "&hourly=temperature_2m,weather_code"
+           # 이틀: 12시간 뒤가 자정을 넘는다. daily 의 첫 칸은 여전히 오늘이다
+           "&forecast_days=2&timezone=auto")  # 위치가 바뀌므로 현지 타임존을 자동으로 잡는다
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             data = (await client.get(url)).json()
@@ -65,12 +84,19 @@ async def board_body(loc: dict) -> tuple[dict, int, dict]:
                   "weather_code": cur["weather_code"], "wind_kmh": cur["wind_speed_10m"],
                   "pop": daily["precipitation_probability_max"][0],
                   "timezone": data.get("timezone")}   # timezone=auto 로 open-meteo 가 알려 준 현지 시간대
-        return ({"city": loc["name"], "temp_c": temp, "cond": desc, "wind_kmh": wind,
-                 "humidity": humid, "temp_max_c": tmax, "temp_min_c": tmin, "pop": pop,
-                 "stamp": stamp,
-                 # 4단계 펌웨어가 읽는 새 이름. 옛 펌웨어 보드가 남아 있는 동안 옛 이름과 같이 보낸다
-                 "out_temp_c": temp, "out_humidity": humid, "out_temp_max_c": tmax,
-                 "out_temp_min_c": tmin}, 200, record)
+        body = {"city": loc["name"], "temp_c": temp, "cond": desc, "wind_kmh": wind,
+                "humidity": humid, "temp_max_c": tmax, "temp_min_c": tmin, "pop": pop,
+                "stamp": stamp,
+                # 4단계 펌웨어가 읽는 새 이름. 옛 펌웨어 보드가 남아 있는 동안 옛 이름과 같이 보낸다
+                "out_temp_c": temp, "out_humidity": humid, "out_temp_max_c": tmax,
+                "out_temp_min_c": tmin}
+        # 예보는 덧붙이는 줄이라, 빠진 값 하나로 지금 날씨까지 잃지 않게 따로 받는다. 못 받으면 키를 빼고,
+        # 기기는 그 줄을 비워 둔다. 예보를 모르는 옛 펌웨어는 이 키를 읽지 않는다.
+        try:
+            body["forecast"] = _forecast(data)
+        except (KeyError, IndexError, TypeError, ValueError):
+            pass
+        return body, 200, record
     except Exception:
         # stamp 도 뺀다: 현지 시각 오프셋이 실패한 그 응답 안에 들어 있어서 서버도 모른다.
         return ({"city": loc["name"]}, 500, {})

@@ -46,6 +46,20 @@ def test_report_with_old_field_name(client, accounts):
     assert buffered()[-1]["fw_version"] == "3.9.9"
 
 
+def test_report_carries_forecast(client, accounts):
+    token, _ = register(client, accounts.add("user_me"), MAC)
+    _, body = report(client, token, MAC)
+    assert body["forecast"] == [{"time": "20:00", "out_temp_c": 10, "cond": "약한 비"},
+                                {"time": "02:00", "out_temp_c": 13, "cond": "흐림"}]   # 자정을 넘어 다음 날
+
+
+def test_forecast_missing_keeps_weather(client, accounts, open_meteo):
+    token, _ = register(client, accounts.add("user_me"), MAC)
+    del open_meteo.forecast["hourly"]
+    status, body = report(client, token, MAC)
+    assert status == 200 and body["out_temp_c"] == 10 and "forecast" not in body
+
+
 def test_weather_lookup_fails(client, accounts, open_meteo):
     token, _ = register(client, accounts.add("user_me"), MAC)
     open_meteo.down = True
