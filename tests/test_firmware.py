@@ -187,3 +187,22 @@ def test_giving_up_while_auto_update_is_off_changes_nothing(client, accounts, re
     report(client, token, MAC, **GAVE_UP)
     sign_in(client, me)
     assert alerts == [] and "설치에 실패해서" not in client.get("/dashboard").text
+
+
+class _Stop(Exception):
+    pass
+
+
+def test_jobs_run_once_before_the_first_wait(monkeypatch):
+    """켜진 직후에 보고한 보드도 업데이트 제안을 받게, 릴리스 받기가 1분 기다림보다 먼저 온다."""
+    calls = []
+    monkeypatch.setattr(actions, "run_due_jobs", lambda: calls.append("jobs"))
+
+    def sleep(_seconds):
+        calls.append("sleep")
+        raise _Stop   # 반복을 한 바퀴에서 끝낸다
+
+    monkeypatch.setattr(actions.time, "sleep", sleep)
+    with pytest.raises(_Stop):
+        actions.run_jobs()
+    assert calls == ["jobs", "sleep"]

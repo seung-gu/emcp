@@ -120,14 +120,17 @@ def run_due_jobs() -> None:
 
 def run_jobs() -> None:
     """앱이 떠 있는 동안 1분마다 할 일이 있는지 본다. server.py 가 데몬 스레드로 띄운다. 한 번 실패해도
-    스레드가 멈추지 않게 예외를 잡는다. 멈추면 보고가 버퍼에 쌓이기만 한다."""
+    스레드가 멈추지 않게 예외를 잡는다. 멈추면 보고가 버퍼에 쌓이기만 한다.
+
+    켜지자마자 한 번 하고 나서 기다린다. 받아 둔 릴리스는 메모리에만 있어서, 받기 전에 보고한 보드는 업데이트
+    제안을 못 받고 30분 뒤 다음 wake 까지 기다린다. 기다린 뒤에 하던 때는 배포할 때마다 그 틈이 1분이었다."""
     while True:
-        time.sleep(_JOB_SECONDS)
         try:
             run_due_jobs()
         except Exception as e:
             print(f"scheduled job failed: {e!r}", flush=True)
             sentry_sdk.capture_exception(e)
+        time.sleep(_JOB_SECONDS)
 
 
 def flush_reports() -> None:
