@@ -254,6 +254,27 @@ def device_list(rows: list[dict]) -> list[dict]:
             for i, last in sorted(seen.items(), key=lambda kv: kv[0] or 0)]
 
 
+def admin_recent(rows: list[dict], keep: int) -> dict:
+    """관리자 페이지에서 보드마다 펼쳐 보는 최근 보고. rows 는 db.reports.latest_reports_all 이 준 보드별 최근 보고다.
+    깨어 있던 시간은 다음 보고가 알려 주므로(attach_awake) 보여 줄 것보다 한 건 더 받아서 맨 앞 것은 버린다.
+    보드 번호 -> 최근 것부터 keep 건."""
+    drop_bad_battery(rows)
+    attach_awake(rows)
+    attach_tz(rows)
+    out: dict = {}
+    for r in rows:
+        t = _local(r)
+        out.setdefault(r["device_id"], []).append({
+            "time": f"{t.month}/{t.day} {t.hour:02d}:{t.minute:02d}",
+            "fw_version": r.get("fw_version"), "battery_mv": r.get("battery_mv"),
+            "rssi": r.get("rssi"), "strength": rssi_label(r["rssi"]) if r.get("rssi") is not None else None,
+            "wifi_ms": r.get("wifi_ms"), "awake_ms": r.get("awake_ms"), "radio_ms": r.get("radio_ms"),
+            "steps": _step_values(r),
+            "reset": _reset_label(r.get("reset_reason")), "logged": r.get("logged") or "",
+        })
+    return {device: reports[-keep:][::-1] for device, reports in out.items()}
+
+
 def table_rows(recent: list[dict]) -> list[dict]:
     """최근 보고 표의 줄마다 보여 줄 값. 없는 값은 None 이고 빈칸이 된다."""
     out = []

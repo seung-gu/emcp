@@ -137,7 +137,7 @@ async def dashboard_page(request: Request):
 
 
 async def admin_page(request: Request):
-    """관리자가 보는, 등록된 모든 보드의 펌웨어와 마지막 보고. 읽기만 하고 아무것도 바꾸지 않는다.
+    """관리자가 보는, 등록된 모든 보드의 펌웨어와 마지막 보고, 펼치면 최근 보고. 읽기만 하고 아무것도 바꾸지 않는다.
 
     관리자가 아니면 없는 주소와 똑같은 404 다. 그런 페이지가 있다는 것조차 알리지 않는다. 로그인하지 않았으면
     대시보드처럼 로그인으로 보낸다. 대시보드처럼 아직 Neon 으로 옮기지 않은 보고를 먼저 옮겨, 방금 들어온
@@ -151,8 +151,10 @@ async def admin_page(request: Request):
     buffer.seal()
     await run_in_threadpool(actions.flush_reports)
     boards = await run_in_threadpool(db.boards.all_devices)
+    recent = await run_in_threadpool(db.reports.latest_reports_all, dashboard.page.ADMIN_RECENT + 1)
     up_to_date = {b["id"]: firmware.runs_latest(b["fw_version"]) for b in boards}
-    return HTMLResponse(dashboard.page.render_admin(boards, latest=firmware.latest_version(), up_to_date=up_to_date))
+    return HTMLResponse(dashboard.page.render_admin(boards, latest=firmware.latest_version(), up_to_date=up_to_date,
+                                                    recent_rows=recent))
 
 
 async def dashboard_claim(request: Request) -> RedirectResponse:

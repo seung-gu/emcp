@@ -17,8 +17,16 @@
 <table class="boards"><tr><th>보드</th><th>주인</th><th>펌웨어</th><th>마지막 보고</th><th>배터리</th><th>자동 업데이트</th></tr>
 {% for b in boards %}
 <tr><td><div class="board-name">{{ b.name or "이름 없는 보드" }}</div><div class="dim">#{{ b.id }}</div></td><td>{{ b.owner_email or "알 수 없음" }}</td><td>{% if b.fw_version %}{{ b.fw_version }}{% if b.current is sameas true %}<p class="fw-ok">✓ 최신</p>{% elif b.current is sameas false %}<p class="fw-behind">최신 아님</p>{% endif %}{% else %}<span class="dim">보고 없음</span>{% endif %}</td><td>{% if b.seen %}{{ b.seen.time }}<div class="dim">{{ b.seen.ago }}</div>{% else %}<span class="dim">없음</span>{% endif %}</td><td>{% if b.battery_mv %}{{ b.battery_mv }} mV{% endif %}</td><td>{% if b.auto_update %}켜짐{% elif b.update_failed %}꺼짐<div class="dim">{{ b.update_failed }} 설치 실패</div>{% else %}꺼짐{% endif %}</td></tr>
+{% if recent.get(b.id) %}
+<tr class="recent"><td colspan="6"><details><summary>최근 보고 {{ recent[b.id] | length }}건</summary><div class="scroll"><table class="reports recent" id="reports-{{ b.id }}"><tr><th class="text">시각</th><th class="text">펌웨어</th><th class="base">배터리 mV</th><th class="base">Wi-Fi 신호 dBm</th><th class="base">Wi-Fi 연결 ms</th>
+<th><button type="button" class="more" aria-expanded="false" aria-controls="reports-{{ b.id }}" title="단계별 시간 보기">깨어 있던 ms</button></th><th><button type="button" class="more" aria-expanded="false" aria-controls="reports-{{ b.id }}" title="단계별 시간 보기">라디오 ms</button></th>{% for name in steps %}<th class="step">{{ loop.index }} {{ name }}</th>{% endfor %}<th class="text base">깨어난 이유</th><th class="base">못 보낸 보고</th></tr>
+{% for r in recent[b.id] %}<tr><td class="text">{{ r.time }}</td><td class="text">{{ r.fw_version | cell }}</td><td class="base">{{ r.battery_mv | cell }}</td><td class="base">{{ r.rssi | cell }}{% if r.strength %} <span class="dim">{{ r.strength }}</span>{% endif %}</td><td class="base">{{ r.wifi_ms | cell }}</td><td>{{ r.awake_ms | cell }}</td><td>{{ r.radio_ms | cell }}</td>{% for v in r.steps %}<td class="step">{{ v | cell }}</td>{% endfor %}<td class="text base">{{ r.reset }}</td><td class="base">{{ r.logged }}</td></tr>
+{% endfor %}</table></div></details></td></tr>
+{% endif %}
 {% endfor %}
 </table>
-<p class="note">위치, 실내 온습도, MAC 은 주인이 공유한 보드에서만 대시보드로 볼 수 있어서 여기에 없습니다. 시각은 보드가 마지막으로 보고한 위치의 현지 시각입니다.</p>
+<p class="note">위치, 실내 온습도, 칩 온도, MAC 은 주인이 공유한 보드에서만 대시보드로 볼 수 있어서 여기에 없습니다. 시각은 보고한 위치의 현지 시각입니다. 깨어난 이유는 타이머로 깨어난 보통의 경우 비워 둡니다. 깨어 있던 시간과 라디오 시간은 다음 보고가 알려 주므로 가장 최근 보고는 비어 있습니다. 두 칸의 제목을 누르면 단계별 시간이 나오고, 다시 누르면 돌아옵니다. 라디오 시간은 2~5번 단계와 7번 중 날씨 저장, Wi-Fi 끄기를 합한 것입니다.</p>
+<script>
+{{ static["table.js"] }}</script>
 </body>
 </html>

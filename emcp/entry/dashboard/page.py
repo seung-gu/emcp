@@ -72,8 +72,13 @@ def render(rows: list[dict], board_id: int | None = None, boards: list[dict] = (
     )
 
 
-def render_admin(boards: list[dict], latest: str | None, up_to_date: dict) -> str:
-    """/admin: 등록된 모든 보드의 펌웨어와 마지막 보고. 시각은 그 보드의 마지막 보고 위치의 현지 시각이다."""
+# 관리자 페이지에서 보드마다 펼쳐 보는 최근 보고 수
+ADMIN_RECENT = 20
+
+
+def render_admin(boards: list[dict], latest: str | None, up_to_date: dict, recent_rows: list[dict]) -> str:
+    """/admin: 등록된 모든 보드의 펌웨어와 마지막 보고, 펼치면 최근 보고 ADMIN_RECENT 건. recent_rows 는
+    db.reports.latest_reports_all(ADMIN_RECENT + 1) 이다. 시각은 그 보고 위치의 현지 시각이다."""
     now = datetime.now(timezone.utc)
     rows = []
     for b in boards:
@@ -84,4 +89,6 @@ def render_admin(boards: list[dict], latest: str | None, up_to_date: dict) -> st
             ago = f"{minutes}분 전" if minutes < 120 else f"{minutes // 60}시간 전"
             seen = {"time": f"{t.month}/{t.day} {t.hour:02d}:{t.minute:02d}", "ago": ago}
         rows.append({**b, "seen": seen, "current": up_to_date.get(b["id"])})
-    return _env.get_template("admin.html").render(static=_STATIC, boards=rows, latest=latest)
+    return _env.get_template("admin.html").render(static=_STATIC, boards=rows, latest=latest,
+                                                  recent=reports.admin_recent(recent_rows, ADMIN_RECENT),
+                                                  steps=[name for _, name, _ in reports.STEP_GROUPS])

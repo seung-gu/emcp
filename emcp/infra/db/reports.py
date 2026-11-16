@@ -165,6 +165,29 @@ def recent_reports(user_id: str, device_id: int, since: datetime) -> list[dict] 
         ).fetchall()
 
 
+def latest_reports_all(per_board: int) -> list[dict]:
+    """등록된 모든 보드의 최근 보고 per_board 건씩, 보드 번호와 받은 시각 순. 관리자 페이지가 쓴다.
+
+    보드가 제대로 깨어나고 서버에 닿고 업데이트를 받는지 보는 값만 읽는다. 실내 온습도, 칩 온도(실내 온도를
+    거의 그대로 따라간다), 날씨와 위치, MAC 은 주인이 공유하지 않은 정보라 읽지 않는다. 모양은 read_reports 와
+    같아서(빈 칸은 키째 빠진다) dashboard/ 의 처리를 그대로 쓴다."""
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT x.device_id, x.received_at, x.fw_version, x.battery_mv, x.rssi, x.wifi_ms, x.wifi_attempts,"
+            " x.reset_reason, x.prev_awake_ms, x.prev_radio_ms, x.prev_steps, x.timezone,"
+            " (SELECT count(*) FROM wake_logs w WHERE w.report_id = x.id) AS logged"
+            " FROM (SELECT r.*, row_number() OVER (PARTITION BY r.device_id ORDER BY r.received_at DESC, r.id DESC) AS n"
+            "       FROM reports r JOIN devices d ON d.id = r.device_id WHERE d.token_hash IS NOT NULL) x"
+            " WHERE x.n <= %s ORDER BY x.device_id, x.received_at, x.id",
+            (per_board,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        r["received_at"] = r["received_at"].astimezone(timezone.utc).isoformat(timespec="seconds")
+        out.append({k: v for k, v in r.items() if v is not None})
+    return out
+
+
 def read_reports(user_id: str) -> list[dict]:
     """이 사람이 볼 수 있는 보드의 보고를 받은 시각 순으로, 대시보드가 그리는 모양으로. 보드는 device_id 로
     구분하고, MAC 은 내가 주인인 보드에만 붙인다(공유받은 사람에게는 이름만 보인다). 비어 있는 칸은

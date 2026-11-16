@@ -174,3 +174,13 @@
   .boards button:hover, .claim button:hover, .incoming button:hover, .waiting button:hover { border-color: var(--accent); color: var(--accent); }
   .waiting { margin: 8px 0 0; padding-left: 22px; font-size: .85rem; }
   .waiting form { display: inline; margin-left: 8px; }
+  /* 관리자에게만 보이는 /admin 링크. 관리자 혼자 알면 되는 링크라 배경에 묻히게 흐리게 둔다. */
+  .admin-link { margin-right: 14px; font-size: .75rem; color: var(--muted); opacity: .35; text-decoration: none; }
+  .admin-link:hover, .admin-link:focus-visible { opacity: 1; }
+  /* /admin 의 보드별 최근 보고. 보드 줄 바로 밑에 접혀 있다. */
+  table.boards tr.recent > td { padding-top: 0; }
+  table.boards tr.recent summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+  table.boards tr.recent summary:hover { color: var(--accent); }
+  table.boards table.recent { margin: 8px 0 4px; font-size: .82rem; }
+  table.boards table.recent th, table.boards table.recent td { padding: 4px 8px; text-align: right; white-space: nowrap; }
+  table.boards table.recent .text { text-align: left; }
