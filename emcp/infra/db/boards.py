@@ -42,6 +42,24 @@ def list_devices(user_id: str) -> list[dict]:
         ).fetchall()
 
 
+def all_devices() -> list[dict]:
+    """관리자 페이지에 쓸, 등록된 모든 보드의 번호, 이름, 주인 이메일, 자동 업데이트, 실패한 버전과 마지막 보고의
+    시각(received_at), 펌웨어 버전, 배터리, 시간대. 보고가 없으면 그 값들은 None.
+
+    주인이 공유하지 않은 위치, 실내 온습도, MAC 은 읽지 않는다. 업데이트가 퍼졌는지, 보드가 살아 있는지 보는 데
+    필요하지 않아서다. 등록을 해제한 보드는 다른 목록처럼 뺀다."""
+    with connect() as conn:
+        return conn.execute(
+            "SELECT d.id, d.name, coalesce(o.email, d.owner_email) AS owner_email, d.auto_update, d.update_failed,"
+            " r.received_at, r.fw_version, r.battery_mv, r.timezone"
+            " FROM devices d"
+            " LEFT JOIN device_access o ON o.device_id = d.id AND o.role = 'owner'"
+            " LEFT JOIN LATERAL (SELECT received_at, fw_version, battery_mv, timezone FROM reports"
+            "   WHERE device_id = d.id ORDER BY received_at DESC LIMIT 1) r ON true"
+            " WHERE d.token_hash IS NOT NULL ORDER BY d.id"
+        ).fetchall()
+
+
 def set_location(user_id: str, device_id: int, city: str, lat: float, lon: float) -> bool:
     """주인이면 보드의 날씨 위치를 바꾸고 True. 남의 보드와 없는 번호는 똑같이 False 다 — 그 보드가
     있는지조차 알려 주지 않는다."""

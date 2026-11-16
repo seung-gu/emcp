@@ -24,7 +24,7 @@ _STATIC = {name: Markup((_HERE / "static" / name).read_text(encoding="utf-8"))
 def render(rows: list[dict], board_id: int | None = None, boards: list[dict] = (), pending: list[dict] = (),
            notice: str | None = None, prefill: str | None = None, history: list[dict] = (),
            shares: dict | None = None, incoming: list[dict] = (), latest: str | None = None,
-           up_to_date: dict | None = None) -> str:
+           up_to_date: dict | None = None, admin: bool = False) -> str:
     # 보드별로 나눠야 하는 처리(attach_awake)는 전체를 대상으로 한 뒤에 거른다.
     reports.drop_bad_battery(rows)
     reports.attach_awake(rows)
@@ -68,4 +68,20 @@ def render(rows: list[dict], board_id: int | None = None, boards: list[dict] = (
         awake_max=reports.AWAKE_MAX_MS,
         logs=reports.log_blocks(recent),
         plot_data=Markup(reports.plot_data(rows, board_id, nvs_total)),
+        admin=admin,
     )
+
+
+def render_admin(boards: list[dict], latest: str | None, up_to_date: dict) -> str:
+    """/admin: 등록된 모든 보드의 펌웨어와 마지막 보고. 시각은 그 보드의 마지막 보고 위치의 현지 시각이다."""
+    now = datetime.now(timezone.utc)
+    rows = []
+    for b in boards:
+        seen = None
+        if b["received_at"]:
+            t = b["received_at"].astimezone(reports.zone(b["timezone"] or reports.DEFAULT_TZ))
+            minutes = int((now - b["received_at"]).total_seconds() // 60)
+            ago = f"{minutes}분 전" if minutes < 120 else f"{minutes // 60}시간 전"
+            seen = {"time": f"{t.month}/{t.day} {t.hour:02d}:{t.minute:02d}", "ago": ago}
+        rows.append({**b, "seen": seen, "current": up_to_date.get(b["id"])})
+    return _env.get_template("admin.html").render(static=_STATIC, boards=rows, latest=latest)

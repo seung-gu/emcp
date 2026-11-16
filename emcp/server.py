@@ -3,7 +3,7 @@
 들어오는 곳은 셋이다 (entry/).
 1. MCP (Streamable HTTP, /mcp): tools.py. 로그인한 사람만 쓰고, 도구는 부른 사람의 보드만 다룬다.
 2. 보드와 펌웨어 릴리스용 HTTP (POST /weather, /firmware): board_api.py.
-3. 로그인과 대시보드 (/auth, /dashboard, /r): web.py.
+3. 로그인과 대시보드 (/auth, /dashboard, /r, /admin): web.py.
 
 층마다 폴더 하나다. 위 층이 아래 층을 부르고, 반대로는 부르지 않는다: entry → service → state → infra.
 층마다 무엇이 있는지는 그 폴더의 __init__.py 에 있다.
@@ -48,6 +48,7 @@ ROUTES = [
     ("GET", "/auth/callback", web.callback),
     ("GET", "/", web.root),
     ("GET", "/dashboard", web.dashboard_page),
+    ("GET", "/admin", web.admin_page),
     ("POST", "/dashboard/claim", web.dashboard_claim),
     ("POST", "/dashboard/cancel-code", web.dashboard_cancel_code),
     ("POST", "/dashboard/release", web.dashboard_release),

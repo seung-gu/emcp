@@ -96,6 +96,7 @@ ESP32 e-ink 날씨 보드용 서버.
 | `POST /firmware/refresh` | `{"commit": "<SHA>"}` | 펌웨어 릴리스 워크플로. 전체 시간당 20번 |
 | `GET /r/<코드>` | 대시보드로 이동 | 보드 화면의 QR. 코드가 채워진 대시보드로 연결 |
 | `GET /dashboard` | 대시보드 | 로그인한 사용자 |
+| `GET /admin` | 등록된 모든 보드의 펌웨어, 마지막 보고, 배터리, 자동 업데이트. 읽기 전용이고 위치, 실내 온습도, MAC은 없음 | 관리자만(`ADMIN_USER_IDS`). 다른 사람에게는 없는 주소와 같은 404 |
 | `GET /health` | `ok` | Fly.io 헬스체크 |
 
 ### 등록
@@ -227,6 +228,7 @@ fly secrets set PUBLIC_URL=https://<app>.fly.dev    # 토큰의 aud와 로그인
 fly deploy --ha=false
 ```
 
+- 관리자: `fly secrets set ADMIN_USER_IDS=<WorkOS 사용자 ID>,...`로 지정한 계정만 `/admin` 접근. 없으면 아무도 못 들어감
 - Sentry: `fly secrets set SENTRY_DSN=...`로 켜짐, 없으면 전송 없음. 요청 본문(보드 토큰 포함)과 개인정보는 전송 안 함
 - 옛 앱 `emcp-led`: 옛 펌웨어 보드가 아직 토큰 없이 `emcp-led.fly.dev`로 보고. 같은 코드를 `ACCEPT_TOKENLESS=1`과 함께 손으로 배포(`fly deploy --ha=false -a emcp-led`). 이 값이 빠지면 옛 보드의 보고가 전부 거절되고, 보드가 5분마다 재시도하며 배터리 소모. `emcp`에는 설정 금지
 

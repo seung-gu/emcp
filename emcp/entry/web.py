@@ -8,6 +8,7 @@ import time
 
 import sentry_sdk
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
 
@@ -129,10 +130,29 @@ async def dashboard_page(request: Request):
     response = HTMLResponse(dashboard.page.render(rows, checks.to_int(request.query_params.get("board")), boards=boards,
                                              pending=pending, notice=notice, prefill=prefill, history=history,
                                              shares=shares, incoming=incoming, latest=firmware.latest_version(),
-                                             up_to_date=up_to_date))
+                                             up_to_date=up_to_date, admin=auth.is_admin(user)))
     if "emcp_claim" in request.cookies:
         response.delete_cookie("emcp_claim")
     return response
+
+
+async def admin_page(request: Request):
+    """관리자가 보는, 등록된 모든 보드의 펌웨어와 마지막 보고. 읽기만 하고 아무것도 바꾸지 않는다.
+
+    관리자가 아니면 없는 주소와 똑같은 404 다. 그런 페이지가 있다는 것조차 알리지 않는다. 로그인하지 않았으면
+    대시보드처럼 로그인으로 보낸다. 대시보드처럼 아직 Neon 으로 옮기지 않은 보고를 먼저 옮겨, 방금 들어온
+    보고까지 보이게 한다.
+    """
+    user = await _signed_in(request)
+    if not user:
+        return RedirectResponse("/auth/login")
+    if not auth.is_admin(user):
+        raise HTTPException(status_code=404)
+    buffer.seal()
+    await run_in_threadpool(actions.flush_reports)
+    boards = await run_in_threadpool(db.boards.all_devices)
+    up_to_date = {b["id"]: firmware.runs_latest(b["fw_version"]) for b in boards}
+    return HTMLResponse(dashboard.page.render_admin(boards, latest=firmware.latest_version(), up_to_date=up_to_date))
 
 
 async def dashboard_claim(request: Request) -> RedirectResponse:

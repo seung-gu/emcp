@@ -53,7 +53,7 @@ DEFAULT_TZ = "Europe/Berlin"
 
 
 @cache
-def _zone(name: str) -> ZoneInfo:
+def zone(name: str) -> ZoneInfo:
     try:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, ValueError):
@@ -71,7 +71,7 @@ def attach_tz(rows: list[dict]) -> None:
 
 
 def _local(r: dict) -> datetime:
-    return datetime.fromisoformat(r["received_at"]).astimezone(_zone(r["tz"]))
+    return datetime.fromisoformat(r["received_at"]).astimezone(zone(r["tz"]))
 
 
 def _hhmm(r: dict) -> str:

@@ -22,6 +22,10 @@ from workos.session import seal_data, unseal_data
 AUTH_ISSUER = os.environ.get("MCP_AUTH_ISSUER")
 PUBLIC_URL = os.environ.get("PUBLIC_URL", "http://localhost:8080")
 RESOURCE = f"{PUBLIC_URL}/mcp"   # 이 서버의 MCP 주소. 토큰의 aud 가 이 값과 같아야 한다
+# 전체 보드를 보는 /admin 에 들어갈 수 있는 사람. WorkOS 사용자 ID 를 쉼표로 잇는다(Fly secret). 이메일이 아니라
+# ID 인 건 세션 쿠키에서 바로 나오는 값이라 요청마다 WorkOS 에 묻지 않아도 되고, 이메일을 바꿔도 그대로여서다.
+# 없으면 아무도 관리자가 아니다.
+ADMIN_USER_IDS = frozenset(i.strip() for i in os.environ.get("ADMIN_USER_IDS", "").split(",") if i.strip())
 
 
 # --- /mcp: MCP 클라이언트가 보내는 AuthKit 토큰 검사 ---
@@ -163,6 +167,10 @@ def deleted_users_since(start: datetime) -> list[tuple[datetime, str]]:
         limit=100,
     )
     return [(e.created_at, e.data.id) for e in page.data]
+
+
+def is_admin(user_id: str | None) -> bool:
+    return user_id in ADMIN_USER_IDS
 
 
 def session_user(session_sealed: str) -> str | None:

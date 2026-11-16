@@ -1,0 +1,24 @@
+{# /admin 페이지. 관리자만 본다. 값은 dashboard/page.py 의 render_admin 이 넣고, 모두 이스케이프된다. 읽기만 하는
+   페이지라 폼이 없다. #}
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>전체 보드</title>
+<style>
+{{ static["page.css"] }}</style>
+<script>
+{{ static["theme.js"] }}</script>
+</head>
+<body>
+<header class="head"><h1>전체 보드</h1><label class="switch"><input type="checkbox" role="switch" id="dark-mode">다크 모드</label></header>
+<p class="sub">등록된 보드 {{ boards | length }}대 · 최신 버전 {{ latest or "확인 중" }} · <a href="/dashboard">내 대시보드</a></p>
+<table class="boards"><tr><th>보드</th><th>주인</th><th>펌웨어</th><th>마지막 보고</th><th>배터리</th><th>자동 업데이트</th></tr>
+{% for b in boards %}
+<tr><td><div class="board-name">{{ b.name or "이름 없는 보드" }}</div><div class="dim">#{{ b.id }}</div></td><td>{{ b.owner_email or "알 수 없음" }}</td><td>{% if b.fw_version %}{{ b.fw_version }}{% if b.current is sameas true %}<p class="fw-ok">✓ 최신</p>{% elif b.current is sameas false %}<p class="fw-behind">최신 아님</p>{% endif %}{% else %}<span class="dim">보고 없음</span>{% endif %}</td><td>{% if b.seen %}{{ b.seen.time }}<div class="dim">{{ b.seen.ago }}</div>{% else %}<span class="dim">없음</span>{% endif %}</td><td>{% if b.battery_mv %}{{ b.battery_mv }} mV{% endif %}</td><td>{% if b.auto_update %}켜짐{% elif b.update_failed %}꺼짐<div class="dim">{{ b.update_failed }} 설치 실패</div>{% else %}꺼짐{% endif %}</td></tr>
+{% endfor %}
+</table>
+<p class="note">위치, 실내 온습도, MAC 은 주인이 공유한 보드에서만 대시보드로 볼 수 있어서 여기에 없습니다. 시각은 보드가 마지막으로 보고한 위치의 현지 시각입니다.</p>
+</body>
+</html>

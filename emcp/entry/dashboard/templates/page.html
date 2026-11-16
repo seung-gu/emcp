@@ -13,7 +13,7 @@
 {{ static["theme.js"] }}</script>
 </head>
 <body>
-<header class="head"><h1>보드 상태</h1><label class="switch"><input type="checkbox" role="switch" id="dark-mode">다크 모드</label></header>
+<header class="head"><h1>보드 상태</h1><span>{% if admin %}<a href="/admin">전체 보드</a> &nbsp; {% endif %}<label class="switch"><input type="checkbox" role="switch" id="dark-mode">다크 모드</label></span></header>
 <p class="sub">{{ summary }}</p>
 {% if devices %}
 <p class="devices"><a href="/dashboard"{% if not board_id %} class="on"{% endif %}>전체</a>{% for d in devices %}<a href="/dashboard?board={{ d.id }}"{% if d.id == board_id %} class="on"{% endif %}>{{ board(d.name, d.mac) }}<span class="dim">{{ d.last }}</span></a>{% endfor %}</p>

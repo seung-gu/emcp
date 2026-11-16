@@ -87,6 +87,7 @@ The search step exists because coordinates an LLM recalls from memory can be wro
 | `POST /firmware/refresh` | `{"commit": "<SHA>"}` | firmware release workflow; 20 per hour in total |
 | `GET /r/<code>` | redirect to the dashboard | QR code on the board's screen, code prefilled |
 | `GET /dashboard` | dashboard | signed-in people |
+| `GET /admin` | every registered board's firmware, last report, battery and auto update; read-only, no location, room readings or MAC | admins only (`ADMIN_USER_IDS`); a 404 like any missing page for everyone else |
 | `GET /health` | `ok` | Fly.io health check |
 
 ### Registration
@@ -207,6 +208,7 @@ fly secrets set PUBLIC_URL=https://<app>.fly.dev    # token audience and sign-in
 fly deploy --ha=false
 ```
 
+- Admins: `fly secrets set ADMIN_USER_IDS=<WorkOS user ID>,...` lets those accounts open `/admin`. Without it nobody can.
 - Sentry: on with `fly secrets set SENTRY_DSN=...`, off without it. Request bodies (they hold board tokens) and personal data are never sent.
 - Legacy app `emcp-led`: boards on old firmware still report to `emcp-led.fly.dev` without a token. That app runs the same code with `ACCEPT_TOKENLESS=1` and is deployed by hand (`fly deploy --ha=false -a emcp-led`). Without that flag every old report is rejected and the boards retry every 5 minutes, draining their batteries. `emcp` never gets the flag.
 
